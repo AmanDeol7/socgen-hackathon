@@ -28,7 +28,7 @@ def metadata() -> EucMetadata:
     return EucMetadata(
         name="cmfst-global-limit",
         description="Example migration",
-        owner_team="Example Team",
+        owners=["owner@example.com"],
         support_team="Example Support",
         secret_references=[
             {"name": "client_id", "vault": "example-vault", "key": "client-id"},

@@ -28,6 +28,7 @@ class EucRegistry:
     def __init__(self, output_root: str | Path) -> None:
         self.output_root = Path(output_root).resolve()
         self._entries: dict[str, EucExecutionMetadata] = {}
+        self._github_entries: dict[str, dict[str, str]] = {}
 
     def register(self, euc: EucExecutionMetadata) -> None:
         """Register one validated executable artifact."""
@@ -64,6 +65,39 @@ class EucRegistry:
         """Remove a registered artifact before replacing its materialized files."""
         _validate_identifier(name, "EUC name")
         return self._entries.pop(name, None) is not None
+
+    def update_github(
+        self,
+        name: str,
+        repository: str,
+        url: str,
+        commit_sha: str,
+    ) -> None:
+        """Store optional GitHub metadata for an already registered EUC."""
+        _validate_identifier(name, "EUC name")
+        self._github_entries[name] = {
+            "github_repo": repository,
+            "github_url": url,
+            "github_commit_sha": commit_sha,
+        }
+        try:
+            entry = self.get(name)
+        except EucNotFoundError:
+            return
+        self._entries[name] = entry.model_copy(
+            update=self._github_entries[name]
+        )
+
+    def github_metadata(self, name: str) -> dict[str, str | None]:
+        """Return optional process-local GitHub metadata for an EUC."""
+        return self._github_entries.get(
+            name,
+            {
+                "github_repo": None,
+                "github_url": None,
+                "github_commit_sha": None,
+            },
+        )
 
     def list(self) -> list[EucExecutionMetadata]:
         """Return registered entries in deterministic name order."""

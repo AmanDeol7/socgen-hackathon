@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 from pathlib import Path
 
 from app.schemas.execution import EucExecutionMetadata
 from app.schemas.migration import (
+    CodeAnalysis,
     GeneratedEUC,
+    GeneratedFile,
     MigrationInput,
     MigrationResult,
     ValidationResult,
@@ -74,8 +77,68 @@ class MigrationOrchestrator:
             )
             return self._failure(migration_input, "transformation", error)
 
+        return self._generate_validate_build_register(
+            generated,
+            migration_input,
+            analysis,
+        )
+
+    def create_euc(self, create_input: MigrationInput) -> MigrationResult:
+        """Create an EUC from platform-compatible source without LLM transformation."""
+        logger.info("Direct EUC creation started.")
         try:
-            generated = generator.assemble(generated, migration_input.metadata, analysis)
+            analysis = analyzer.analyze(create_input.source_code)
+        except ValueError as error:
+            logger.warning("Direct EUC source analysis failed: %s", error)
+            return self._failure(create_input, "analysis", error)
+
+        source_validation = validator.validate_source(analysis)
+        if not source_validation.valid:
+            generated = GeneratedEUC(
+                name=create_input.metadata.name,
+                files=[],
+                warnings=analysis.warnings,
+                unsupported_features=[],
+            )
+            return MigrationResult(
+                status="FAILED",
+                generated_euc=generated,
+                validation=source_validation,
+            )
+
+        generated = GeneratedEUC(
+            name=create_input.metadata.name,
+            files=[
+                GeneratedFile(
+                    path="src/main.py",
+                    content=create_input.source_code,
+                )
+            ],
+            warnings=analysis.warnings
+            or ["Created directly from platform-compatible Python source."],
+            unsupported_features=[],
+        )
+        return self._generate_validate_build_register(
+            generated,
+            create_input,
+            analysis,
+            stage_direct_creation=True,
+        )
+
+    def _generate_validate_build_register(
+        self,
+        generated: GeneratedEUC,
+        migration_input: MigrationInput,
+        analysis: CodeAnalysis,
+        stage_direct_creation: bool = False,
+    ) -> MigrationResult:
+        """Run deterministic assembly through registration for either entry path."""
+        try:
+            generated = generator.assemble(
+                generated,
+                migration_input.metadata,
+                analysis,
+            )
             validation = validator.validate(generated)
         except (OSError, SyntaxError, ValueError) as error:
             logger.warning("Migration validation failed: %s", error)
@@ -100,21 +163,17 @@ class MigrationOrchestrator:
 
         try:
             output_directory = self._output_directory(generated)
-            if self.registry is not None:
-                self.registry.unregister(generated.name)
-            generator.generate_euc(generated, output_directory)
-        except (OSError, RuntimeError, ValueError) as error:
-            logger.warning("Migration generation failed: %s", error)
-            return self._failure(
-                migration_input,
-                "generation",
-                error,
-                generated_euc=generated,
-                validation=validation,
-            )
-
-        try:
-            self.image_builder.build(output_directory, generated.name, "latest")
+            if stage_direct_creation:
+                if output_directory.exists() or (
+                    self.registry is not None
+                    and self.registry.exists(generated.name)
+                ):
+                    raise ValueError("An EUC with this name already exists.")
+                self._build_staged_artifact(generated, output_directory)
+            else:
+                if self.registry is not None:
+                    self.registry.unregister(generated.name)
+                generator.generate_euc(generated, output_directory)
         except docker_builder.DockerBuildError as error:
             logger.warning("Docker image build failed: %s", error)
             return self._failure(
@@ -124,6 +183,28 @@ class MigrationOrchestrator:
                 generated_euc=generated,
                 validation=validation,
             )
+        except (OSError, RuntimeError, ValueError) as error:
+            logger.warning("EUC generation failed: %s", error)
+            return self._failure(
+                migration_input,
+                "generation",
+                error,
+                generated_euc=generated,
+                validation=validation,
+            )
+
+        if not stage_direct_creation:
+            try:
+                self.image_builder.build(output_directory, generated.name, "latest")
+            except docker_builder.DockerBuildError as error:
+                logger.warning("Docker image build failed: %s", error)
+                return self._failure(
+                    migration_input,
+                    "docker_build",
+                    error,
+                    generated_euc=generated,
+                    validation=validation,
+                )
 
         if self.registry is not None:
             try:
@@ -151,6 +232,20 @@ class MigrationOrchestrator:
             generated_euc=generated,
             validation=validation,
         )
+
+    def _build_staged_artifact(
+        self,
+        generated: GeneratedEUC,
+        output_directory: Path,
+    ) -> None:
+        """Build directly-authored artifacts privately before publishing them."""
+        root = self.output_root.resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=".draft-", dir=root) as temporary_root:
+            staged_directory = Path(temporary_root) / generated.name
+            generator.generate_euc(generated, staged_directory)
+            self.image_builder.build(staged_directory, generated.name, "latest")
+            staged_directory.rename(output_directory)
 
     def _output_directory(self, generated: GeneratedEUC) -> Path:
         """Return a contained output directory derived from the generated name."""

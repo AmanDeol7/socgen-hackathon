@@ -7,7 +7,12 @@ import builtins
 import re
 from pathlib import Path, PurePosixPath
 
-from app.schemas.migration import GeneratedEUC, GeneratedFile, ValidationResult
+from app.schemas.migration import (
+    CodeAnalysis,
+    GeneratedEUC,
+    GeneratedFile,
+    ValidationResult,
+)
 
 _BUILTINS = set(dir(builtins))
 
@@ -92,6 +97,20 @@ def validate(generated_euc: GeneratedEUC) -> ValidationResult:
         warnings.append("No transformation warnings were supplied.")
     warnings.extend(generated_euc.warnings)
     return ValidationResult(valid=not errors, errors=_unique(errors), warnings=_unique(warnings))
+
+
+def validate_source(analysis: CodeAnalysis) -> ValidationResult:
+    """Validate platform-compatible source before standard-file generation."""
+    errors: list[str] = []
+    if analysis.entrypoint is None:
+        errors.append("Python source must define a run(...) entrypoint.")
+    if analysis.maxx_imports:
+        errors.append("Direct EUC source must not import MAXX runtime modules.")
+    return ValidationResult(
+        valid=not errors,
+        errors=errors,
+        warnings=analysis.warnings,
+    )
 
 
 def validate_directory(directory: str | Path) -> ValidationResult:

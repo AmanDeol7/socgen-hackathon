@@ -200,7 +200,7 @@ def test_assemble_owns_standard_files_and_metadata(tmp_path: Path) -> None:
     metadata = EucMetadata(
         name="demo",
         python_version="3.11",
-        owner_team="owner",
+        owners=["owner@example.com"],
         support_team="support",
         secret_references=[{"name": "client_id", "vault": "vault", "key": "id"}],
         dependencies=["requests", "pandas"],
@@ -249,7 +249,7 @@ def test_assemble_adds_platform_test_when_provider_omits_tests() -> None:
     metadata = EucMetadata(
         name="demo",
         python_version="3.12",
-        owner_team="owner",
+        owners=["owner@example.com"],
         support_team="support",
     )
     analysis = CodeAnalysis(

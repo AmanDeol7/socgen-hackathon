@@ -61,7 +61,7 @@ def test_post_migrations_returns_completed_result(
     )
     metadata = {
         "name": "api-demo",
-        "owner_team": "Example Team",
+        "owners": ["owner@example.com"],
         "support_team": "Example Support",
     }
     app.dependency_overrides[get_orchestrator] = lambda: MigrationOrchestrator(
@@ -94,7 +94,7 @@ def test_post_migrations_returns_failure_information(tmp_path: Path) -> None:
             json={
                 "metadata": {
                     "name": "api-demo",
-                    "owner_team": "Example Team",
+                    "owners": ["owner@example.com"],
                     "support_team": "Example Support",
                 },
                 "source_code": "def run(value):\n    return value\n",

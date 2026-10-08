@@ -42,6 +42,11 @@ input:focus, textarea:focus { border-color: #2873d4; box-shadow: 0 0 0 3px #2873
 .repeatable-list { display: grid; gap: 14px; }
 .repeatable-row { align-items: end; border-top: 1px solid #e5ebf2; display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; padding-top: 14px; }
 .dependency-row { align-items: end; display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) auto; max-width: 620px; }
+.owner-fields { margin-top: 20px; }
+.monaco-editor { border: 1px solid #ccd7e5; border-radius: 9px; overflow: hidden; }
+.creation-errors { color: #a72d38; font-size: .9rem; }
+.github-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.github-save-success { color: #19754f; overflow-wrap: anywhere; }
 .alert { border-radius: 9px; padding: 13px 15px; }
 .error { background: #fff0f0; border: 1px solid #f0b9bd; color: #a72d38; }
 .status-panel { align-items: center; color: #526177; display: flex; gap: 11px; margin-top: 22px; }

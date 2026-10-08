@@ -115,3 +115,13 @@ Existing generated EUCs are discovered on first execution for compatibility;
 they must already have a matching local image. Callers provide only the logical
 EUC name; future schedulers such as AutoSys will use that name rather than
 Docker or filesystem details.
+
+### Save EUCs to GitHub
+
+GitHub saving is optional and separate from EUC creation and migration.
+Configure the backend process with `GITHUB_ORG` and `GITHUB_TOKEN`; keep the
+token backend-only and do not commit it. Use **Save to GitHub** on an EUC to
+create or reuse `<GITHUB_ORG>/<euc-name>` and commit the complete validated
+standardized artifact. The API returns the repository URL and commit SHA.
+Subsequent saves create ordinary Git commits; no additional version store is
+used.

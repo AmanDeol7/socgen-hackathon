@@ -101,7 +101,7 @@ def test_openrouter_provider_integrates_with_transformer() -> None:
     )
     metadata = EucMetadata(
         name="demo",
-        owner_team="Example",
+        owners=["owner@example.com"],
         support_team="Example",
     )
     generated = transform(

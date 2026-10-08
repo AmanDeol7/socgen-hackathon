@@ -1,20 +1,28 @@
-"""Read-only API access to registered EUC artifacts."""
+"""Create EUCs and read local generated artifacts."""
 
 import os
 import re
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.schemas.migration import GeneratedFile
+from app.api.migration import get_orchestrator
+from app.schemas.migration import GeneratedFile, MigrationInput, MigrationResult
 from app.services.execution.registry import (
     EucNotFoundError,
     EucRegistry,
     RegistryError,
     get_registry,
 )
+from app.services.github import (
+    GitHubConfigurationError,
+    GitHubSaveError,
+    GitHubService,
+)
+from app.services.migration import validator
+from app.services.migration.orchestrator import MigrationOrchestrator
 
 router = APIRouter()
 
@@ -24,14 +32,80 @@ class EucSummary(BaseModel):
     image: str
     version: str
     status: Literal["REGISTERED", "ARTIFACT_PRESENT"]
+    github_repo: str | None = None
+    github_url: str | None = None
+    github_commit_sha: str | None = None
 
 
 class EucDetails(EucSummary):
     files: list[GeneratedFile]
 
 
+class GitHubSaveResponse(BaseModel):
+    euc_name: str
+    github_repo: str
+    github_url: str
+    github_commit_sha: str
+
+
 def _registry() -> EucRegistry:
     return get_registry(Path(os.getenv("EUC_OUTPUT_ROOT", "output")))
+
+
+@router.post(
+    "/api/eucs/{name}/github",
+    response_model=GitHubSaveResponse,
+)
+def save_euc_to_github(name: str) -> GitHubSaveResponse:
+    """Commit a complete validated EUC artifact to its configured organization."""
+    registry = _registry()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name) or name in {
+        ".",
+        "..",
+    }:
+        raise HTTPException(status_code=404, detail="EUC not found.")
+    try:
+        registered = registry.get(name)
+        artifact_path = Path(registered.path).resolve()
+        artifact_path.relative_to(registry.output_root)
+    except (EucNotFoundError, RegistryError, ValueError):
+        artifact_path = (registry.output_root / name).resolve()
+        try:
+            artifact_path.relative_to(registry.output_root)
+        except ValueError as error:
+            raise HTTPException(status_code=404, detail="EUC not found.") from error
+    if not artifact_path.is_dir() or not (artifact_path / "Dockerfile").is_file():
+        raise HTTPException(status_code=404, detail="EUC not found.")
+
+    validation = validator.validate_directory(artifact_path)
+    if not validation.valid:
+        raise HTTPException(
+            status_code=422,
+            detail="Generated EUC artifact is invalid and cannot be saved to GitHub.",
+        )
+    try:
+        result = GitHubService().save(name, artifact_path)
+    except GitHubConfigurationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except GitHubSaveError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    registry.update_github(
+        name,
+        result["github_repo"],
+        result["github_url"],
+        result["github_commit_sha"],
+    )
+    return GitHubSaveResponse(**result)
+
+
+@router.post("/api/eucs", response_model=MigrationResult)
+def create_euc(
+    create_input: MigrationInput,
+    orchestrator: Annotated[MigrationOrchestrator, Depends(get_orchestrator)],
+) -> MigrationResult:
+    """Create and materialize an EUC from platform-compatible Python source."""
+    return orchestrator.create_euc(create_input)
 
 
 @router.get("/api/eucs", response_model=list[EucSummary])
@@ -44,6 +118,7 @@ def list_eucs() -> list[EucSummary]:
             image=item.image,
             version=item.version,
             status="REGISTERED",
+            **registry.github_metadata(item.name),
         )
         for item in registry.list()
     }
@@ -66,6 +141,7 @@ def list_eucs() -> list[EucSummary]:
                     image=artifact.name,
                     version="latest",
                     status="ARTIFACT_PRESENT",
+                    **registry.github_metadata(artifact.name),
                 ),
             )
     return [items[name] for name in sorted(items)]
@@ -111,5 +187,6 @@ def get_euc(name: str) -> EucDetails:
         image=metadata.image if metadata else name,
         version=metadata.version if metadata else "latest",
         status=status,
+        **registry.github_metadata(name),
         files=files,
     )

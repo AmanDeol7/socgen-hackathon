@@ -45,6 +45,9 @@ def test_list_eucs_returns_registered_execution_metadata(
             "image": "customer-greetingggg",
             "version": "latest",
             "status": "REGISTERED",
+            "github_repo": None,
+            "github_url": None,
+            "github_commit_sha": None,
         }
     ]
 
@@ -95,5 +98,8 @@ def test_list_includes_existing_artifacts_after_registry_restart(
             "image": "customer-greetingggg",
             "version": "latest",
             "status": "ARTIFACT_PRESENT",
+            "github_repo": None,
+            "github_url": None,
+            "github_commit_sha": None,
         }
     ]

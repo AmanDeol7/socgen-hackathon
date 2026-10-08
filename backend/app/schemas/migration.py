@@ -1,8 +1,16 @@
 """Shared contracts for MAXX EUC migration."""
 
+import re
 from typing import Literal
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
+
+_EMAIL_ADDRESS = re.compile(
+    r"^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+"
+    r"(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@"
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$"
+)
 
 
 class SecretReference(BaseModel):
@@ -19,12 +27,25 @@ class EucMetadata(BaseModel):
     name: str
     description: str | None = None
     python_version: str = "3.12"
-    owner_team: str
-    support_team: str
+    owners: list[str] = Field(min_length=1)
+    support_team: str | None = None
     schedule: str | None = None
     sharepoint_url: HttpUrl | None = None
     secret_references: list[SecretReference] = Field(default_factory=list)
     dependencies: list[str] = Field(default_factory=list)
+
+    @field_validator("owners")
+    @classmethod
+    def validate_owner_emails(cls, owners: list[str]) -> list[str]:
+        """Validate owner email syntax without an external email package."""
+        for owner in owners:
+            if (
+                len(owner) > 254
+                or len(owner.partition("@")[0]) > 64
+                or not _EMAIL_ADDRESS.fullmatch(owner)
+            ):
+                raise ValueError(f"{owner!r} is not a valid email address")
+        return owners
 
 
 class MigrationInput(BaseModel):

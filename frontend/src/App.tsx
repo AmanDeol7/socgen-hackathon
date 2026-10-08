@@ -1,4 +1,5 @@
 import { FormEvent, useState } from "react";
+import CreateEucForm from "./CreateEucForm";
 import {
   EucMetadata,
   MigrationResult,
@@ -17,8 +18,8 @@ const initialMetadata: EucMetadata = {
   name: "",
   description: null,
   python_version: "3.12",
-  owner_team: "",
-  support_team: "",
+  owners: [""],
+  support_team: null,
   schedule: null,
   sharepoint_url: null,
   secret_references: [],
@@ -29,17 +30,10 @@ const initialSource = `def run(json_input):
     return json_input
 `;
 
-const requiredMetadataFields = new Set<keyof EucMetadata>([
-  "name",
-  "python_version",
-  "owner_team",
-  "support_team",
-]);
-
 function App() {
-  const [section, setSection] = useState<"migration" | "eucs" | "executions">(
-    "migration",
-  );
+  const [section, setSection] = useState<
+    "migration" | "create" | "eucs" | "executions"
+  >("migration");
   const [focusEucName, setFocusEucName] = useState("");
   const [metadata, setMetadata] = useState<EucMetadata>(initialMetadata);
   const [sourceCode, setSourceCode] = useState(initialSource);
@@ -49,14 +43,14 @@ function App() {
 
   const canSubmit =
     metadata.name.trim() !== "" &&
-    metadata.owner_team.trim() !== "" &&
-    metadata.support_team.trim() !== "" &&
+    metadata.owners.length > 0 &&
+    metadata.owners.every((owner) => isValidEmail(owner.trim())) &&
     sourceCode.trim() !== "";
 
   function updateMetadata(field: keyof EucMetadata, value: string) {
     setMetadata((current) => ({
       ...current,
-      [field]: requiredMetadataFields.has(field)
+      [field]: field === "name" || field === "python_version"
         ? value
         : value.trim() === ""
           ? null
@@ -99,6 +93,7 @@ function App() {
       <nav className="main-navigation" aria-label="Platform sections">
         {([
           ["migration", "Migration"],
+          ["create", "Create EUC"],
           ["eucs", "EUCs"],
           ["executions", "Executions"],
         ] as const).map(([value, label]) => (
@@ -112,6 +107,15 @@ function App() {
           </button>
         ))}
       </nav>
+
+      {section === "create" && (
+        <CreateEucForm
+          onViewEuc={(name) => {
+            setFocusEucName(name);
+            setSection("eucs");
+          }}
+        />
+      )}
 
       {section === "migration" && (
         <>
@@ -136,26 +140,66 @@ function App() {
                 }
               />
             </Field>
-            <Field label="Owner team" required>
+            <Field label="Support team (optional)">
               <input
-                required
-                value={metadata.owner_team}
-                onChange={(event) =>
-                  updateMetadata("owner_team", event.target.value)
-                }
-                placeholder="Finance Automation"
-              />
-            </Field>
-            <Field label="Support team" required>
-              <input
-                required
-                value={metadata.support_team}
+                value={metadata.support_team ?? ""}
                 onChange={(event) =>
                   updateMetadata("support_team", event.target.value)
                 }
                 placeholder="Platform Support"
               />
             </Field>
+            <div className="field wide">
+              <span>Owners <b>*</b></span>
+              {metadata.owners.length === 0 && (
+                <p className="muted">Add at least one owner email address.</p>
+              )}
+              {metadata.owners.map((owner, index) => (
+                <div className="dependency-row" key={`migration-owner-${index}`}>
+                  <input
+                    type="email"
+                    required
+                    aria-label={`Owner email ${index + 1}`}
+                    value={owner}
+                    onChange={(event) =>
+                      setMetadata((current) => ({
+                        ...current,
+                        owners: current.owners.map((item, itemIndex) =>
+                          itemIndex === index ? event.target.value : item,
+                        ),
+                      }))
+                    }
+                    placeholder="aman@example.com"
+                  />
+                  <button
+                    className="remove-button"
+                    type="button"
+                    onClick={() =>
+                      setMetadata((current) => ({
+                        ...current,
+                        owners: current.owners.filter(
+                          (_, itemIndex) => itemIndex !== index,
+                        ),
+                      }))
+                    }
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() =>
+                  setMetadata((current) => ({
+                    ...current,
+                    owners: [...current.owners, ""],
+                  }))
+                }
+              >
+                Add owner
+              </button>
+            </div>
             <Field label="Description">
               <input
                 value={metadata.description ?? ""}
@@ -492,3 +536,7 @@ function ResultList({
 }
 
 export default App;
+
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}

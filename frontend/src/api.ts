@@ -8,8 +8,8 @@ export interface EucMetadata {
   name: string;
   description: string | null;
   python_version: string;
-  owner_team: string;
-  support_team: string;
+  owners: string[];
+  support_team: string | null;
   schedule: string | null;
   sharepoint_url: string | null;
   secret_references: SecretReference[];
@@ -21,6 +21,8 @@ export interface MigrationInput {
   source_code: string;
   source_filename: string;
 }
+
+export type EucCreationInput = MigrationInput;
 
 export interface GeneratedFile {
   path: string;
@@ -58,6 +60,9 @@ export interface EucSummary {
   image: string;
   version: string;
   status: "REGISTERED" | "ARTIFACT_PRESENT";
+  github_repo: string | null;
+  github_url: string | null;
+  github_commit_sha: string | null;
 }
 
 export interface EucDetails extends EucSummary {
@@ -83,6 +88,13 @@ export interface ExecutionRecord {
   stderr: string;
 }
 
+export interface GitHubSaveResponse {
+  euc_name: string;
+  github_repo: string;
+  github_url: string;
+  github_commit_sha: string;
+}
+
 const API_BASE = "http://localhost:8000/api";
 
 export async function migrateEuc(input: MigrationInput): Promise<MigrationResult> {
@@ -98,6 +110,20 @@ export async function migrateEuc(input: MigrationInput): Promise<MigrationResult
   return payload;
 }
 
+export async function createEuc(
+  input: EucCreationInput,
+): Promise<MigrationResult> {
+  const payload = await request("/eucs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!isMigrationResult(payload)) {
+    throw new Error("The EUC service returned an unexpected creation response.");
+  }
+  return payload;
+}
+
 export async function getEucs(): Promise<EucSummary[]> {
   const payload = await request("/eucs");
   if (
@@ -107,6 +133,30 @@ export async function getEucs(): Promise<EucSummary[]> {
     throw new Error("The EUC service returned an unexpected list response.");
   }
   return payload;
+}
+
+export async function saveEucToGitHub(
+  eucName: string,
+): Promise<GitHubSaveResponse> {
+  const payload = await request(
+    `/eucs/${encodeURIComponent(eucName)}/github`,
+    { method: "POST" },
+  );
+  if (
+    !isRecord(payload) ||
+    typeof payload.euc_name !== "string" ||
+    typeof payload.github_repo !== "string" ||
+    typeof payload.github_url !== "string" ||
+    typeof payload.github_commit_sha !== "string"
+  ) {
+    throw new Error("The GitHub service returned an unexpected response.");
+  }
+  return {
+    euc_name: payload.euc_name,
+    github_repo: payload.github_repo,
+    github_url: payload.github_url,
+    github_commit_sha: payload.github_commit_sha,
+  };
 }
 
 export async function getEuc(name: string): Promise<EucDetails> {
@@ -127,6 +177,12 @@ export async function getEuc(name: string): Promise<EucDetails> {
     image: payload.image,
     version: payload.version,
     status: payload.status,
+    github_repo: typeof payload.github_repo === "string" ? payload.github_repo : null,
+    github_url: typeof payload.github_url === "string" ? payload.github_url : null,
+    github_commit_sha:
+      typeof payload.github_commit_sha === "string"
+        ? payload.github_commit_sha
+        : null,
     files: payload.files,
   };
 }
@@ -236,7 +292,11 @@ function isEucSummary(value: unknown): value is EucSummary {
     typeof value.name === "string" &&
     typeof value.image === "string" &&
     typeof value.version === "string" &&
-    (value.status === "REGISTERED" || value.status === "ARTIFACT_PRESENT")
+    (value.status === "REGISTERED" || value.status === "ARTIFACT_PRESENT") &&
+    (typeof value.github_repo === "string" || value.github_repo === null) &&
+    (typeof value.github_url === "string" || value.github_url === null) &&
+    (typeof value.github_commit_sha === "string" ||
+      value.github_commit_sha === null)
   );
 }
 

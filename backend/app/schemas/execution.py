@@ -19,6 +19,9 @@ class EucExecutionMetadata(BaseModel):
     image: str = Field(min_length=1)
     version: str = Field(default="latest", min_length=1)
     path: str = Field(min_length=1)
+    github_repo: str | None = None
+    github_url: str | None = None
+    github_commit_sha: str | None = None
 
 
 class ExecutionResult(BaseModel):

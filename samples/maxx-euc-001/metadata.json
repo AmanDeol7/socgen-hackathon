@@ -2,7 +2,7 @@
   "name": "cmfst-global-limit",
   "description": "Example MAXX EUC for migration testing",
   "python_version": "3.11",
-  "owner_team": "Example Team",
+  "owners": ["owner@example.com"],
   "support_team": "Example Support",
   "schedule": "0 2 * * *",
   "sharepoint_url": "https://example.sharepoint.com/example",

@@ -12,7 +12,7 @@ const metadata: EucMetadata = {
   name: "demo",
   description: null,
   python_version: "3.12",
-  owner_team: "Finance",
+  owners: ["owner@example.com"],
   support_team: "Platform",
   schedule: null,
   sharepoint_url: null,

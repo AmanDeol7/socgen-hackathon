@@ -8,6 +8,8 @@ import {
   getEucs,
   getExecution,
   getExecutions,
+  GitHubSaveResponse,
+  saveEucToGitHub,
 } from "./api";
 
 type DashboardSection = "eucs" | "executions";
@@ -30,6 +32,9 @@ export default function PlatformDashboard({
   const [details, setDetails] = useState<EucDetails | null>(null);
   const [detailsError, setDetailsError] = useState("");
   const [selectedFile, setSelectedFile] = useState("");
+  const [githubSave, setGithubSave] = useState<GitHubSaveResponse | null>(null);
+  const [githubError, setGithubError] = useState("");
+  const [isSavingToGitHub, setIsSavingToGitHub] = useState(false);
   const [executions, setExecutions] = useState<ExecutionRecord[]>([]);
   const [historyError, setHistoryError] = useState("");
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
@@ -163,6 +168,23 @@ export default function PlatformDashboard({
     }
   }
 
+  async function saveSelectedEucToGitHub() {
+    if (!details) return;
+    setGithubError("");
+    setGithubSave(null);
+    setIsSavingToGitHub(true);
+    try {
+      setGithubSave(await saveEucToGitHub(details.name));
+      await refreshEucs();
+      const refreshedDetails = await getEuc(details.name);
+      setDetails(refreshedDetails);
+    } catch (error) {
+      setGithubError(errorMessage(error));
+    } finally {
+      setIsSavingToGitHub(false);
+    }
+  }
+
   const selectedFileContent = details?.files.find(
     (file) => file.path === selectedFile,
   )?.content;
@@ -255,12 +277,41 @@ export default function PlatformDashboard({
                 <div><dt>Registry status</dt><dd>{details.status}</dd></div>
                 <div><dt>Image</dt><dd>{details.image}:{details.version}</dd></div>
                 <div><dt>Generated files</dt><dd>{details.files.length}</dd></div>
+                <div>
+                  <dt>GitHub repository</dt>
+                  <dd>
+                    {details.github_url ? (
+                      <a href={details.github_url} target="_blank" rel="noreferrer">
+                        {details.github_repo}
+                      </a>
+                    ) : "Not saved"}
+                  </dd>
+                </div>
               </dl>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => void saveSelectedEucToGitHub()}
+                disabled={isSavingToGitHub}
+              >
+                {isSavingToGitHub ? "Saving to GitHub…" : "Save to GitHub"}
+              </button>
+              {githubError && <p className="alert error">{githubError}</p>}
+              {githubSave && (
+                <p className="github-save-success" role="status">
+                  Saved to{" "}
+                  <a href={githubSave.github_url} target="_blank" rel="noreferrer">
+                    {githubSave.github_repo}
+                  </a>
+                  {" · Commit "}
+                  <code>{githubSave.github_commit_sha}</code>
+                </p>
+              )}
               <p className="muted">
                 {details.status === "REGISTERED"
                   ? "Registered execution metadata and generated standardized files."
                   : "Generated standardized files were found on disk, but this backend process has not registered this artifact. Execution will resolve it through the existing local registry behavior."}
-                {" "}Original migration metadata such as owner/support teams is not persisted by the backend.
+                {" "}Original owner and support metadata is not persisted by the backend.
               </p>
               {details.files.length === 0 ? (
                 <p className="muted">No generated files were returned.</p>

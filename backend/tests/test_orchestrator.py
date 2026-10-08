@@ -94,7 +94,7 @@ class StaticProvider:
 def metadata() -> EucMetadata:
     return EucMetadata(
         name="demo-euc",
-        owner_team="Example Team",
+        owners=["owner@example.com"],
         support_team="Example Support",
     )
 
