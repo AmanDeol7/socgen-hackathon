@@ -1,0 +1,24 @@
+{
+  "name": "cmfst-global-limit",
+  "description": "Example MAXX EUC for migration testing",
+  "python_version": "3.11",
+  "owner_team": "Example Team",
+  "support_team": "Example Support",
+  "schedule": "0 2 * * *",
+  "sharepoint_url": "https://example.sharepoint.com/example",
+  "secret_references": [
+    {
+      "name": "client_id",
+      "vault": "example-vault",
+      "key": "client-id"
+    },
+    {
+      "name": "client_secret",
+      "vault": "example-vault",
+      "key": "client-secret"
+    }
+  ],
+  "dependencies": [
+    "requests"
+  ]
+}
