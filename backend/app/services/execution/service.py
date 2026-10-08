@@ -42,6 +42,10 @@ class ExecutionError(ValueError):
     """Raised when an EUC cannot be safely prepared for execution."""
 
 
+class EucCertificationError(ExecutionError):
+    """Raised when an EUC has not been approved for execution."""
+
+
 class ExecutionService:
     """Execute registered EUCs through the local Docker CLI."""
 
@@ -79,6 +83,7 @@ class ExecutionService:
 
     def execute(self, euc_name: str, input_data: dict) -> ExecutionResult:
         """Run one existing EUC and capture its Docker process result."""
+        self.ensure_certified(euc_name)
         try:
             metadata = self.registry.get(euc_name)
         except EucNotFoundError:
@@ -132,6 +137,29 @@ class ExecutionService:
             stdout=_sanitize_output(completed.stdout),
             stderr=_sanitize_output(completed.stderr),
         )
+
+    def ensure_certified(self, euc_name: str) -> None:
+        """Reject uncertified artifacts before lifecycle tracking or Docker."""
+        try:
+            metadata = self.registry.get(euc_name)
+        except EucNotFoundError:
+            try:
+                self.registry.register_existing(euc_name)
+                metadata = self.registry.get(euc_name)
+            except RegistryError:
+                return
+        except RegistryError:
+            return
+        try:
+            metadata = self.registry.refresh_certification(euc_name)
+        except RegistryError as error:
+            raise EucCertificationError(
+                "Unable to verify EUC certification against its generated files."
+            ) from error
+        if metadata.certification_status != "CERTIFIED":
+            raise EucCertificationError(
+                f"EUC '{euc_name}' is not certified for execution."
+            )
 
 def _sanitize_output(output: str) -> str:
     """Suppress lines that are likely to contain sensitive runtime values."""

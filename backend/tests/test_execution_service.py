@@ -11,11 +11,32 @@ from app.services.execution.registry import EucRegistry
 from app.services.execution.service import ExecutionError, ExecutionService
 
 
-def _service(tmp_path: Path, name: str = "demo") -> ExecutionService:
+def _service(
+    tmp_path: Path,
+    name: str = "demo",
+    image: str | None = None,
+) -> ExecutionService:
     euc = tmp_path / name
     euc.mkdir()
     (euc / "Dockerfile").write_text("FROM python:3.12-slim\n", encoding="utf-8")
-    return ExecutionService(tmp_path, timeout_seconds=2, docker_command="docker")
+    registry = EucRegistry(tmp_path)
+    registry.register(
+        EucExecutionMetadata(
+            name=name,
+            image=image or name,
+            version="latest",
+            path=str(euc),
+            owners=["owner@example.com"],
+        )
+    )
+    registry.submit_for_certification(name)
+    registry.approve(name, "owner@example.com")
+    return ExecutionService(
+        tmp_path,
+        timeout_seconds=2,
+        docker_command="docker",
+        registry=registry,
+    )
 
 
 def test_execute_success_uses_fixed_docker_arguments(tmp_path: Path) -> None:
@@ -41,17 +62,7 @@ def test_execute_success_uses_fixed_docker_arguments(tmp_path: Path) -> None:
 
 
 def test_execute_resolves_image_from_registry(tmp_path: Path) -> None:
-    service = _service(tmp_path)
-    registry = EucRegistry(tmp_path)
-    registry.register(
-        EucExecutionMetadata(
-            name="demo",
-            image="approved-image",
-            version="latest",
-            path=str(tmp_path / "demo"),
-        )
-    )
-    service.registry = registry
+    service = _service(tmp_path, image="approved-image")
     completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="ok", stderr="")
     with patch("app.services.execution.service.subprocess.run", return_value=completed) as run:
         service.execute("demo", {})

@@ -131,6 +131,9 @@ def test_direct_creation_validates_builds_and_registers(
     assert response.json()["status"] == "COMPLETED"
     assert response.json()["validation"]["valid"] is True
     assert registry.exists("direct-demo")
+    registered = registry.get("direct-demo")
+    assert registered.certification_status == "DRAFT"
+    assert registered.owners == ["aman@example.com"]
     assert (tmp_path / "direct-demo" / "src" / "main.py").read_text() == _SOURCE
 
 

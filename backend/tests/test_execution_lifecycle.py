@@ -4,8 +4,9 @@ import subprocess
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from app.schemas.execution import ExecutionResult
+from app.schemas.execution import EucExecutionMetadata, ExecutionResult
 from app.services.execution.lifecycle import ExecutionLifecycleService, ExecutionStore
+from app.services.execution.registry import EucRegistry
 from app.services.execution.service import ExecutionError, ExecutionService
 
 
@@ -13,7 +14,23 @@ def _service(tmp_path: Path, result: ExecutionResult) -> ExecutionLifecycleServi
     euc = tmp_path / "demo"
     euc.mkdir()
     (euc / "Dockerfile").write_text("FROM python:3.12-slim\n", encoding="utf-8")
-    docker_service = ExecutionService(tmp_path, docker_command="docker")
+    registry = EucRegistry(tmp_path)
+    registry.register(
+        EucExecutionMetadata(
+            name="demo",
+            image="demo",
+            version="latest",
+            path=str(euc),
+            owners=["owner@example.com"],
+        )
+    )
+    registry.submit_for_certification("demo")
+    registry.approve("demo", "owner@example.com")
+    docker_service = ExecutionService(
+        tmp_path,
+        docker_command="docker",
+        registry=registry,
+    )
     docker_service_result = subprocess.CompletedProcess(
         args=[],
         returncode=result.exit_code if result.exit_code is not None else 1,
@@ -100,7 +117,22 @@ def test_lifecycle_records_timeout(tmp_path: Path) -> None:
     euc = tmp_path / "demo"
     euc.mkdir()
     (euc / "Dockerfile").write_text("FROM python:3.12-slim\n", encoding="utf-8")
-    service = ExecutionService(tmp_path, docker_command="docker")
+    registry = EucRegistry(tmp_path)
+    registry.register(
+        EucExecutionMetadata(
+            name="demo",
+            image="demo",
+            path=str(euc),
+            owners=["owner@example.com"],
+        )
+    )
+    registry.submit_for_certification("demo")
+    registry.approve("demo", "owner@example.com")
+    service = ExecutionService(
+        tmp_path,
+        docker_command="docker",
+        registry=registry,
+    )
     lifecycle = ExecutionLifecycleService(service, ExecutionStore())
     with patch(
         "app.services.execution.service.subprocess.run",

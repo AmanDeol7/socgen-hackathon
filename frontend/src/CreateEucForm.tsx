@@ -325,7 +325,7 @@ export default function CreateEucForm({ onViewEuc }: CreateEucFormProps) {
           )}
           <p className="muted">
             {succeeded
-              ? "The generated artifact was built and registered as executable."
+              ? "The generated artifact was built and registered. Certification status: DRAFT. Submit it for certification from EUC details before execution."
               : "This EUC was not registered as executable."}
           </p>
         </section>

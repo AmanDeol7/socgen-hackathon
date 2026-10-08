@@ -60,13 +60,37 @@ export interface EucSummary {
   image: string;
   version: string;
   status: "REGISTERED" | "ARTIFACT_PRESENT";
+  owners: string[];
+  certification_status: CertificationStatus;
+  approved_by: string | null;
+  approved_at: string | null;
+  rejected_by: string | null;
+  rejected_at: string | null;
+  rejection_reason: string | null;
   github_repo: string | null;
   github_url: string | null;
   github_commit_sha: string | null;
 }
 
+export type CertificationStatus =
+  | "DRAFT"
+  | "PENDING_APPROVAL"
+  | "CERTIFIED"
+  | "REJECTED";
+
 export interface EucDetails extends EucSummary {
   files: GeneratedFile[];
+}
+
+export interface CertificationResponse {
+  euc_name: string;
+  owners: string[];
+  certification_status: CertificationStatus;
+  approved_by: string | null;
+  approved_at: string | null;
+  rejected_by: string | null;
+  rejected_at: string | null;
+  rejection_reason: string | null;
 }
 
 export type ExecutionStatus =
@@ -93,6 +117,11 @@ export interface GitHubSaveResponse {
   github_repo: string;
   github_url: string;
   github_commit_sha: string;
+}
+
+export interface EucEditResponse {
+  euc_name: string;
+  certification_status: CertificationStatus;
 }
 
 const API_BASE = "http://localhost:8000/api";
@@ -132,7 +161,16 @@ export async function getEucs(): Promise<EucSummary[]> {
   ) {
     throw new Error("The EUC service returned an unexpected list response.");
   }
-  return payload;
+  return payload.map((item) => ({
+    ...item,
+    owners: item.owners ?? [],
+    certification_status: item.certification_status ?? "DRAFT",
+    approved_by: nullableString(item.approved_by),
+    approved_at: nullableString(item.approved_at),
+    rejected_by: nullableString(item.rejected_by),
+    rejected_at: nullableString(item.rejected_at),
+    rejection_reason: nullableString(item.rejection_reason),
+  }));
 }
 
 export async function saveEucToGitHub(
@@ -159,6 +197,54 @@ export async function saveEucToGitHub(
   };
 }
 
+export async function submitEucForCertification(
+  eucName: string,
+): Promise<CertificationResponse> {
+  return certificationRequest(
+    `/eucs/${encodeURIComponent(eucName)}/certification/submit`,
+  );
+}
+
+export async function approveEuc(
+  eucName: string,
+  ownerEmail: string,
+): Promise<CertificationResponse> {
+  return certificationRequest(
+    `/eucs/${encodeURIComponent(eucName)}/certification/approve`,
+    { owner_email: ownerEmail },
+  );
+}
+
+export async function rejectEuc(
+  eucName: string,
+  ownerEmail: string,
+  reason: string,
+): Promise<CertificationResponse> {
+  return certificationRequest(
+    `/eucs/${encodeURIComponent(eucName)}/certification/reject`,
+    { owner_email: ownerEmail, reason: reason || null },
+  );
+}
+
+async function certificationRequest(
+  path: string,
+  body?: { owner_email: string; reason?: string | null },
+): Promise<CertificationResponse> {
+  const payload = await request(path, {
+    method: "POST",
+    ...(body
+      ? {
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }
+      : {}),
+  });
+  if (!isCertificationResponse(payload)) {
+    throw new Error("The certification service returned an unexpected response.");
+  }
+  return payload;
+}
+
 export async function getEuc(name: string): Promise<EucDetails> {
   const payload = await request(`/eucs/${encodeURIComponent(name)}`);
   if (
@@ -177,6 +263,15 @@ export async function getEuc(name: string): Promise<EucDetails> {
     image: payload.image,
     version: payload.version,
     status: payload.status,
+    owners: isStringArray(payload.owners) ? payload.owners : [],
+    certification_status: isCertificationStatus(payload.certification_status)
+      ? payload.certification_status
+      : "DRAFT",
+    approved_by: nullableString(payload.approved_by),
+    approved_at: nullableString(payload.approved_at),
+    rejected_by: nullableString(payload.rejected_by),
+    rejected_at: nullableString(payload.rejected_at),
+    rejection_reason: nullableString(payload.rejection_reason),
     github_repo: typeof payload.github_repo === "string" ? payload.github_repo : null,
     github_url: typeof payload.github_url === "string" ? payload.github_url : null,
     github_commit_sha:
@@ -184,6 +279,28 @@ export async function getEuc(name: string): Promise<EucDetails> {
         ? payload.github_commit_sha
         : null,
     files: payload.files,
+  };
+}
+
+export async function updateEuc(
+  eucName: string,
+  files: GeneratedFile[],
+): Promise<EucEditResponse> {
+  const payload = await request(`/eucs/${encodeURIComponent(eucName)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ files }),
+  });
+  if (
+    !isRecord(payload) ||
+    payload.euc_name !== eucName ||
+    !isCertificationStatus(payload.certification_status)
+  ) {
+    throw new Error("The EUC service returned an unexpected edit response.");
+  }
+  return {
+    euc_name: payload.euc_name,
+    certification_status: payload.certification_status,
   };
 }
 
@@ -293,11 +410,41 @@ function isEucSummary(value: unknown): value is EucSummary {
     typeof value.image === "string" &&
     typeof value.version === "string" &&
     (value.status === "REGISTERED" || value.status === "ARTIFACT_PRESENT") &&
+    (value.owners === undefined || isStringArray(value.owners)) &&
+    (value.certification_status === undefined ||
+      isCertificationStatus(value.certification_status)) &&
     (typeof value.github_repo === "string" || value.github_repo === null) &&
     (typeof value.github_url === "string" || value.github_url === null) &&
     (typeof value.github_commit_sha === "string" ||
       value.github_commit_sha === null)
   );
+}
+
+function isCertificationStatus(value: unknown): value is CertificationStatus {
+  return ["DRAFT", "PENDING_APPROVAL", "CERTIFIED", "REJECTED"].includes(
+    String(value),
+  );
+}
+
+function isCertificationResponse(
+  value: unknown,
+): value is CertificationResponse {
+  return (
+    isRecord(value) &&
+    typeof value.euc_name === "string" &&
+    isStringArray(value.owners) &&
+    isCertificationStatus(value.certification_status) &&
+    (typeof value.approved_by === "string" || value.approved_by === null) &&
+    (typeof value.approved_at === "string" || value.approved_at === null) &&
+    (typeof value.rejected_by === "string" || value.rejected_by === null) &&
+    (typeof value.rejected_at === "string" || value.rejected_at === null) &&
+    (typeof value.rejection_reason === "string" ||
+      value.rejection_reason === null)
+  );
+}
+
+function nullableString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
 }
 
 function isGeneratedFile(value: unknown): value is GeneratedFile {

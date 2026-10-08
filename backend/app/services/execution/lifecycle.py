@@ -84,6 +84,7 @@ class ExecutionLifecycleService:
 
     def execute(self, euc_name: str, input_data: dict) -> ExecutionRecord:
         """Create, run, and finalize one execution record."""
+        self.execution_service.ensure_certified(euc_name)
         record = self.store.create_execution(euc_name)
         self.store.mark_running(record.execution_id)
         try:

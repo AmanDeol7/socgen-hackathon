@@ -35,8 +35,12 @@ logging, authentication, and production infrastructure.
 3. From the `backend` directory, run:
 
    ```powershell
-   uvicorn app.main:app --reload
+   uvicorn app.main:app --reload --reload-dir app
    ```
+
+   Limit reload watching to application code so generated EUC files in
+   `backend/output` do not trigger a backend reload and clear process-local
+   registry metadata such as owners and certification state.
 
 4. Verify that `GET /health` returns `{"status": "ok"}`.
 
@@ -107,14 +111,24 @@ service.
 
 ### Local EUC registry
 
-The local execution service uses an in-memory registry that maps a logical EUC
-name to validated execution metadata: Docker image, version, and generated
-artifact path. Successful migrations rebuild the deterministic `<name>:latest`
-image from the generated artifact and register it only after the build succeeds.
-Existing generated EUCs are discovered on first execution for compatibility;
-they must already have a matching local image. Callers provide only the logical
-EUC name; future schedulers such as AutoSys will use that name rather than
-Docker or filesystem details.
+The local execution service loads its registry into memory from
+`<EUC_OUTPUT_ROOT>/.euc-registry.json` (default: `output/.euc-registry.json`).
+It persists owners, certification state, and GitHub repository metadata alongside
+the Docker image, version, and generated artifact path, so those details remain
+available after a backend restart. Successful migrations register an artifact
+only after validation and image building succeed. Existing generated EUCs
+without registry metadata are discovered for compatibility, but owner data that
+was previously held only in memory cannot be recovered automatically.
+Callers provide only the logical EUC name, not Docker or filesystem details.
+
+### Edit existing EUCs
+
+Existing EUCs can be edited with `PUT /api/eucs/{name}`. The request contains
+a `files` array of `{ "path": ..., "content": ... }` entries and accepts only
+`src/main.py`, `src/logic.py`, or business Python tests under `tests/`.
+Validation and a Docker image rebuild happen in a staging directory before the
+artifact is replaced. A successful meaningful edit to a certified EUC clears
+its approval and returns it to `PENDING_APPROVAL`.
 
 ### Save EUCs to GitHub
 

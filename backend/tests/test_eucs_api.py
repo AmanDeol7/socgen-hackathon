@@ -25,6 +25,7 @@ def _registered_registry(root: Path) -> EucRegistry:
             image="customer-greetingggg",
             version="latest",
             path=str(artifact),
+            owners=["owner@example.com"],
         )
     )
     return registry
@@ -45,6 +46,13 @@ def test_list_eucs_returns_registered_execution_metadata(
             "image": "customer-greetingggg",
             "version": "latest",
             "status": "REGISTERED",
+            "owners": ["owner@example.com"],
+            "certification_status": "DRAFT",
+            "approved_by": None,
+            "approved_at": None,
+            "rejected_by": None,
+            "rejected_at": None,
+            "rejection_reason": None,
             "github_repo": None,
             "github_url": None,
             "github_commit_sha": None,
@@ -65,6 +73,8 @@ def test_get_euc_returns_generated_files(
     assert payload["name"] == "customer-greetingggg"
     assert payload["version"] == "latest"
     assert payload["status"] == "REGISTERED"
+    assert payload["certification_status"] == "DRAFT"
+    assert payload["owners"] == ["owner@example.com"]
     assert {item["path"] for item in payload["files"]} == {
         "Dockerfile",
         "src/main.py",
@@ -83,7 +93,7 @@ def test_get_unknown_euc_returns_404(monkeypatch, tmp_path: Path) -> None:
     assert response.status_code == 404
 
 
-def test_list_includes_existing_artifacts_after_registry_restart(
+def test_list_restores_registry_metadata_after_restart(
     tmp_path: Path, monkeypatch
 ) -> None:
     _registered_registry(tmp_path)
@@ -97,9 +107,30 @@ def test_list_includes_existing_artifacts_after_registry_restart(
             "name": "customer-greetingggg",
             "image": "customer-greetingggg",
             "version": "latest",
-            "status": "ARTIFACT_PRESENT",
+            "status": "REGISTERED",
+            "owners": ["owner@example.com"],
+            "certification_status": "DRAFT",
+            "approved_by": None,
+            "approved_at": None,
+            "rejected_by": None,
+            "rejected_at": None,
+            "rejection_reason": None,
             "github_repo": None,
             "github_url": None,
             "github_commit_sha": None,
         }
     ]
+
+
+def test_list_includes_unregistered_existing_artifact(
+    tmp_path: Path, monkeypatch
+) -> None:
+    artifact = tmp_path / "customer-greetingggg"
+    artifact.mkdir()
+    (artifact / "Dockerfile").write_text("FROM python:3.12-slim\n", encoding="utf-8")
+    monkeypatch.setattr(eucs, "_registry", lambda: EucRegistry(tmp_path))
+
+    response = TestClient(app).get("/api/eucs")
+
+    assert response.status_code == 200
+    assert response.json()[0]["status"] == "ARTIFACT_PRESENT"

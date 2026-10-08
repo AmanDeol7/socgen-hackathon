@@ -11,7 +11,7 @@ from app.services.execution.lifecycle import (
     ExecutionStore,
 )
 from app.services.execution.registry import get_registry
-from app.services.execution.service import ExecutionService
+from app.services.execution.service import EucCertificationError, ExecutionService
 
 router = APIRouter()
 
@@ -32,7 +32,10 @@ def create_execution(
     service: Annotated[ExecutionLifecycleService, Depends(get_execution_service)],
 ) -> ExecutionRecord:
     """Execute an existing standardized EUC synchronously."""
-    return service.execute(execution_input.euc_name, execution_input.input)
+    try:
+        return service.execute(execution_input.euc_name, execution_input.input)
+    except EucCertificationError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @router.get("/api/executions/{execution_id}", response_model=ExecutionRecord)

@@ -32,7 +32,7 @@ const initialSource = `def run(json_input):
 
 function App() {
   const [section, setSection] = useState<
-    "migration" | "create" | "eucs" | "executions"
+    "dashboard" | "migration" | "create" | "eucs" | "certifications" | "executions"
   >("migration");
   const [focusEucName, setFocusEucName] = useState("");
   const [metadata, setMetadata] = useState<EucMetadata>(initialMetadata);
@@ -92,9 +92,11 @@ function App() {
 
       <nav className="main-navigation" aria-label="Platform sections">
         {([
-          ["migration", "Migration"],
-          ["create", "Create EUC"],
+          ["dashboard", "Dashboard"],
           ["eucs", "EUCs"],
+          ["create", "Create EUC"],
+          ["migration", "Migration"],
+          ["certifications", "Certifications"],
           ["executions", "Executions"],
         ] as const).map(([value, label]) => (
           <button
@@ -430,7 +432,12 @@ function App() {
         </>
       )}
 
-      {(section === "eucs" || section === "executions") && (
+      {(
+        section === "dashboard" ||
+        section === "eucs" ||
+        section === "certifications" ||
+        section === "executions"
+      ) && (
         <PlatformDashboard
           section={section}
           initialEucName={focusEucName}
@@ -438,6 +445,7 @@ function App() {
             setFocusEucName(name);
             setSection("executions");
           }}
+          onNavigate={setSection}
         />
       )}
     </main>
@@ -484,12 +492,19 @@ function MigrationResultView({
         Validation: <strong>{result.validation.valid ? "VALID" : "INVALID"}</strong>
       </p>
       {successful && (
-        <button
-          className="secondary-button"
-          onClick={() => onViewEuc(result.generated_euc.name)}
-        >
-          View generated EUC
-        </button>
+        <>
+          <p className="certification-callout">
+            Certification status: <strong>DRAFT</strong>. This EUC must be
+            submitted and approved by one of its owners before execution.
+            {" "}GitHub: not saved yet; save it from the EUC details page.
+          </p>
+          <button
+            className="secondary-button"
+            onClick={() => onViewEuc(result.generated_euc.name)}
+          >
+            View generated EUC
+          </button>
+        </>
       )}
 
       <div className="result-grid">
