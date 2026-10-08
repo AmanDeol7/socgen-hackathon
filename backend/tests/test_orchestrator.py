@@ -12,7 +12,18 @@ from app.schemas.migration import (
     GeneratedFile,
     MigrationInput,
 )
+from app.services.execution.registry import EucRegistry
 from app.services.migration import orchestrator
+from app.services.migration.docker_builder import DockerBuildError
+
+
+@pytest.fixture(autouse=True)
+def mock_docker_build(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        orchestrator.docker_builder.DockerImageBuilder,
+        "build",
+        lambda self, build_directory, image, version: None,
+    )
 
 
 class FakeProvider:
@@ -112,6 +123,57 @@ def test_successful_migration_writes_named_output_directory(
         "Example unsupported feature."
     ]
     assert (tmp_path / metadata.name / "src/main.py").is_file()
+
+
+def test_migration_builds_image_before_registering(
+    migration_input: MigrationInput,
+    metadata: EucMetadata,
+    tmp_path: Path,
+) -> None:
+    registry = EucRegistry(tmp_path)
+
+    class OrderedBuilder:
+        def build(self, build_directory: Path, image: str, version: str) -> None:
+            assert build_directory == (tmp_path / metadata.name)
+            assert image == metadata.name
+            assert version == "latest"
+            assert not registry.exists(metadata.name)
+
+    result = orchestrator.MigrationOrchestrator(
+        FakeProvider(metadata),
+        tmp_path,
+        registry=registry,
+        image_builder=OrderedBuilder(),
+    ).migrate(migration_input)
+
+    assert result.status == "COMPLETED"
+    assert registry.exists(metadata.name)
+
+
+def test_failed_image_build_fails_migration_without_registration(
+    migration_input: MigrationInput,
+    metadata: EucMetadata,
+    tmp_path: Path,
+) -> None:
+    registry = EucRegistry(tmp_path)
+
+    class FailingBuilder:
+        def build(self, build_directory: Path, image: str, version: str) -> None:
+            raise DockerBuildError(
+                f"Docker image build failed for {image}:{version} (exit code 1)."
+            )
+
+    result = orchestrator.MigrationOrchestrator(
+        FakeProvider(metadata),
+        tmp_path,
+        registry=registry,
+        image_builder=FailingBuilder(),
+    ).migrate(migration_input)
+
+    assert result.status == "FAILED"
+    assert any("Docker build failed" in error for error in result.validation.errors)
+    assert not registry.exists(metadata.name)
+    assert (tmp_path / metadata.name / "Dockerfile").is_file()
 
 
 def test_invalid_generated_euc_is_not_materialized(

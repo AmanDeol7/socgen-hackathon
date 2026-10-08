@@ -8,7 +8,7 @@
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; }
-button, input, textarea { font: inherit; }
+button, input, textarea, select { font: inherit; }
 
 .page-shell { width: min(1040px, calc(100% - 32px)); margin: 0 auto; padding: 52px 0 72px; }
 .hero { margin-bottom: 30px; }
@@ -60,6 +60,40 @@ input:focus, textarea:focus { border-color: #2873d4; box-shadow: 0 0 0 3px #2873
 .result-list li { margin: 7px 0; }
 .result-list li::before { color: #26936a; content: "✓"; font-weight: 800; margin-right: 8px; }
 .muted { color: #8591a2; font-size: .9rem; }
+.main-navigation { border-bottom: 1px solid #dfe6ef; display: flex; gap: 8px; margin: 0 0 22px; }
+.navigation-button { background: transparent; border: 0; border-bottom: 3px solid transparent; color: #607086; cursor: pointer; font-weight: 750; padding: 12px 16px; }
+.navigation-button:hover, .navigation-button.active { color: #2873d4; }
+.navigation-button.active { border-bottom-color: #2873d4; }
+.dashboard-layout { display: grid; gap: 18px; }
+.status-pill.ready, .status-completed { background: #e7f7ef; color: #19754f; }
+.status-failed, .status-timed_out { background: #fff0f0; color: #a72d38; }
+.status-running, .status-pending { background: #fff6df; color: #8a6411; }
+.table-wrap { overflow-x: auto; }
+.data-table { border-collapse: collapse; min-width: 640px; text-align: left; width: 100%; }
+.data-table th, .data-table td { border-bottom: 1px solid #e8edf3; padding: 12px 10px; vertical-align: middle; }
+.data-table th { color: #65738a; font-size: .78rem; text-transform: uppercase; }
+.table-actions { display: flex; gap: 12px; }
+.text-button { background: none; border: 0; color: #2873d4; cursor: pointer; font-weight: 750; padding: 5px; }
+.text-button:hover { text-decoration: underline; }
+.metadata-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); margin: 18px 0; }
+.metadata-grid div { background: #f7f9fc; border-radius: 9px; padding: 12px; min-width: 0; }
+.metadata-grid dt { color: #65738a; font-size: .78rem; font-weight: 750; margin-bottom: 5px; }
+.metadata-grid dd { margin: 0; overflow-wrap: anywhere; }
+.file-viewer { border: 1px solid #e0e7f0; border-radius: 10px; display: grid; grid-template-columns: minmax(160px, 240px) minmax(0, 1fr); min-height: 280px; overflow: hidden; }
+.file-list { align-content: start; background: #f7f9fc; border-right: 1px solid #e0e7f0; display: grid; padding: 8px; }
+.file-button { background: transparent; border: 0; border-radius: 6px; color: #46546a; cursor: pointer; overflow-wrap: anywhere; padding: 9px; text-align: left; }
+.file-button:hover, .file-button.selected { background: #e8f1fc; color: #1e63b3; }
+.file-content { min-width: 0; padding: 16px; }
+.file-content pre, .output-block { background: #111827; border-radius: 8px; color: #e5edf8; font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: .82rem; line-height: 1.55; margin: 0; max-height: 460px; min-height: 100px; overflow: auto; padding: 14px; white-space: pre; }
+.file-content pre { min-height: 220px; }
+.execute-form { display: grid; gap: 16px; }
+.execute-form select { background: #fbfcfe; border: 1px solid #ccd7e5; border-radius: 9px; color: #1c2434; padding: 11px 12px; }
+.json-editor { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; min-height: 150px; resize: vertical; width: 100%; }
+.execution-result { border-top: 1px solid #e5ebf2; margin-top: 22px; padding-top: 20px; }
+.execution-result.completed { border-top: 3px solid #26936a; }
+.execution-result.failed, .execution-result.timed_out { border-top: 3px solid #c34a55; }
+.output-grid { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.output-block { min-height: 90px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 @media (max-width: 640px) {
   .page-shell { padding-top: 30px; }
@@ -68,4 +102,9 @@ input:focus, textarea:focus { border-color: #2873d4; box-shadow: 0 0 0 3px #2873
   .remove-button { align-self: start; justify-self: start; }
   .field.wide { grid-column: auto; }
   .section-heading, .result-heading { flex-direction: column; }
+  .main-navigation { gap: 0; }
+  .navigation-button { flex: 1; padding: 10px 6px; }
+  .file-viewer { grid-template-columns: 1fr; }
+  .file-list { border-bottom: 1px solid #e0e7f0; border-right: 0; max-height: 180px; overflow: auto; }
+  .output-grid { grid-template-columns: 1fr; }
 }

@@ -138,6 +138,35 @@ def test_validate_allows_environment_and_configuration_references() -> None:
 
 
 @pytest.mark.parametrize(
+    ("source", "expected_valid"),
+    [
+        ("def run() -> Dict[str, str]:\n    return {}\n", False),
+        ("from typing import Dict\n\ndef run() -> Dict[str, str]:\n    return {}\n", True),
+        ("def run(value: str) -> dict[str, list[str]]:\n    return {value: []}\n", True),
+        ("def helper(value):\n    return value\n\ndef run(value):\n    return helper(value)\n", True),
+        ("import json\n\ndef run(value):\n    return json.dumps(value)\n", True),
+    ],
+)
+def test_validate_detects_undefined_python_names(
+    source: str, expected_valid: bool
+) -> None:
+    result = validate(
+        _euc(
+            ("src/main.py", source),
+            ("tests/test_logic.py", "def test_ok():\n    assert True\n"),
+            ("config/config.yaml", "secret_references:\n  {}\n"),
+            ("requirements.txt", "# No external dependencies required\n"),
+            ("README.md", "# demo\n"),
+            ("Dockerfile", "FROM python:3.12-slim\n"),
+        )
+    )
+
+    assert result.valid is expected_valid
+    if not expected_valid:
+        assert any("Undefined name 'Dict'" in error for error in result.errors)
+
+
+@pytest.mark.parametrize(
     "required_path",
     [
         "src/main.py",
@@ -211,3 +240,31 @@ def test_assemble_owns_standard_files_and_metadata(tmp_path: Path) -> None:
     }]
     assert len(generated_paths) == 5
     assert generate(assembled, tmp_path)
+
+
+def test_assemble_adds_platform_test_when_provider_omits_tests() -> None:
+    business = _euc(
+        ("src/main.py", "def run(input_data, context):\n    return input_data\n")
+    )
+    metadata = EucMetadata(
+        name="demo",
+        python_version="3.12",
+        owner_team="owner",
+        support_team="support",
+    )
+    analysis = CodeAnalysis(
+        imports=[],
+        functions=[],
+        entrypoint="run",
+        maxx_imports=[],
+        secret_usages=[],
+        external_urls=[],
+        warnings=[],
+    )
+
+    assembled = assemble(business, metadata, analysis)
+
+    assert any(
+        item.path == "tests/test_euc_contract.py"
+        for item in assembled.files
+    )

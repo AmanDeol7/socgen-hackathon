@@ -13,7 +13,13 @@ from app.schemas.migration import (
     ValidationResult,
 )
 from app.services.execution.registry import EucRegistry
-from app.services.migration import analyzer, generator, transformer, validator
+from app.services.migration import (
+    analyzer,
+    docker_builder,
+    generator,
+    transformer,
+    validator,
+)
 
 _STANDARD_SPECIFICATION = (
     Path(__file__).resolve().parents[4] / "docs" / "euc-standard.md"
@@ -33,11 +39,13 @@ class MigrationOrchestrator:
         output_root: str | Path,
         standard_specification_path: str | Path = _STANDARD_SPECIFICATION,
         registry: EucRegistry | None = None,
+        image_builder: docker_builder.DockerImageBuilder | None = None,
     ) -> None:
         self.provider = provider
         self.output_root = Path(output_root)
         self.standard_specification_path = Path(standard_specification_path)
         self.registry = registry
+        self.image_builder = image_builder or docker_builder.DockerImageBuilder()
 
     def migrate(self, migration_input: MigrationInput) -> MigrationResult:
         """Run a migration and return a contract-shaped result on every path."""
@@ -92,16 +100,9 @@ class MigrationOrchestrator:
 
         try:
             output_directory = self._output_directory(generated)
-            generator.generate_euc(generated, output_directory)
             if self.registry is not None:
-                self.registry.register(
-                    EucExecutionMetadata(
-                        name=generated.name,
-                        image=generated.name,
-                        version="latest",
-                        path=str(output_directory),
-                    )
-                )
+                self.registry.unregister(generated.name)
+            generator.generate_euc(generated, output_directory)
         except (OSError, RuntimeError, ValueError) as error:
             logger.warning("Migration generation failed: %s", error)
             return self._failure(
@@ -111,6 +112,38 @@ class MigrationOrchestrator:
                 generated_euc=generated,
                 validation=validation,
             )
+
+        try:
+            self.image_builder.build(output_directory, generated.name, "latest")
+        except docker_builder.DockerBuildError as error:
+            logger.warning("Docker image build failed: %s", error)
+            return self._failure(
+                migration_input,
+                "docker_build",
+                error,
+                generated_euc=generated,
+                validation=validation,
+            )
+
+        if self.registry is not None:
+            try:
+                self.registry.register(
+                    EucExecutionMetadata(
+                        name=generated.name,
+                        image=generated.name,
+                        version="latest",
+                        path=str(output_directory),
+                    )
+                )
+            except (OSError, RuntimeError, ValueError) as error:
+                logger.warning("Migration registry registration failed.")
+                return self._failure(
+                    migration_input,
+                    "registration",
+                    error,
+                    generated_euc=generated,
+                    validation=validation,
+                )
 
         logger.info("Migration completed successfully.")
         return MigrationResult(
@@ -174,6 +207,8 @@ class MigrationOrchestrator:
     @staticmethod
     def _failure_message(stage: str, error: Exception) -> str:
         """Return useful details only for controlled application failures."""
+        if stage == "docker_build" and isinstance(error, docker_builder.DockerBuildError):
+            return f"Docker build failed: {error}"
         if (
             stage == "transformation"
             and str(error) == _UNCONFIGURED_PROVIDER_MESSAGE

@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.api.migration import get_orchestrator
 from app.main import app
-from app.services.migration import openrouter
+from app.services.migration import docker_builder, openrouter
 from app.services.migration.orchestrator import MigrationOrchestrator
 
 
@@ -51,7 +51,14 @@ class FailingApiProvider:
         raise RuntimeError("provider unavailable")
 
 
-def test_post_migrations_returns_completed_result(tmp_path: Path) -> None:
+def test_post_migrations_returns_completed_result(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        docker_builder.DockerImageBuilder,
+        "build",
+        lambda self, directory, image, version: None,
+    )
     metadata = {
         "name": "api-demo",
         "owner_team": "Example Team",

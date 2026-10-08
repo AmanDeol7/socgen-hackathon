@@ -60,6 +60,11 @@ class EucRegistry:
         except RegistryError:
             return False
 
+    def unregister(self, name: str) -> bool:
+        """Remove a registered artifact before replacing its materialized files."""
+        _validate_identifier(name, "EUC name")
+        return self._entries.pop(name, None) is not None
+
     def list(self) -> list[EucExecutionMetadata]:
         """Return registered entries in deterministic name order."""
         return [self._entries[name] for name in sorted(self._entries)]

@@ -4,6 +4,7 @@ import {
   MigrationResult,
   migrateEuc,
 } from "./api";
+import PlatformDashboard from "./PlatformDashboard";
 import {
   addDependency,
   addSecretReference,
@@ -36,6 +37,10 @@ const requiredMetadataFields = new Set<keyof EucMetadata>([
 ]);
 
 function App() {
+  const [section, setSection] = useState<"migration" | "eucs" | "executions">(
+    "migration",
+  );
+  const [focusEucName, setFocusEucName] = useState("");
   const [metadata, setMetadata] = useState<EucMetadata>(initialMetadata);
   const [sourceCode, setSourceCode] = useState(initialSource);
   const [result, setResult] = useState<MigrationResult | null>(null);
@@ -91,6 +96,25 @@ function App() {
         </p>
       </header>
 
+      <nav className="main-navigation" aria-label="Platform sections">
+        {([
+          ["migration", "Migration"],
+          ["eucs", "EUCs"],
+          ["executions", "Executions"],
+        ] as const).map(([value, label]) => (
+          <button
+            className={section === value ? "navigation-button active" : "navigation-button"}
+            key={value}
+            onClick={() => setSection(value)}
+            aria-current={section === value ? "page" : undefined}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {section === "migration" && (
+        <>
       <form className="migration-form" onSubmit={handleSubmit}>
         <section className="card">
           <h2>EUC metadata</h2>
@@ -350,7 +374,28 @@ function App() {
         </div>
       )}
 
-      {result && <MigrationResultView result={result} />}
+      {result && (
+        <MigrationResultView
+          result={result}
+          onViewEuc={(name) => {
+            setFocusEucName(name);
+            setSection("eucs");
+          }}
+        />
+      )}
+        </>
+      )}
+
+      {(section === "eucs" || section === "executions") && (
+        <PlatformDashboard
+          section={section}
+          initialEucName={focusEucName}
+          onExecuteEuc={(name) => {
+            setFocusEucName(name);
+            setSection("executions");
+          }}
+        />
+      )}
     </main>
   );
 }
@@ -373,7 +418,13 @@ function Field({ label, required, wide, children }: FieldProps) {
   );
 }
 
-function MigrationResultView({ result }: { result: MigrationResult }) {
+function MigrationResultView({
+  result,
+  onViewEuc,
+}: {
+  result: MigrationResult;
+  onViewEuc: (name: string) => void;
+}) {
   const successful = result.status === "COMPLETED" && result.validation.valid;
   return (
     <section className={`result-card ${successful ? "success" : "failure"}`}>
@@ -388,6 +439,14 @@ function MigrationResultView({ result }: { result: MigrationResult }) {
       <p className="validation-line">
         Validation: <strong>{result.validation.valid ? "VALID" : "INVALID"}</strong>
       </p>
+      {successful && (
+        <button
+          className="secondary-button"
+          onClick={() => onViewEuc(result.generated_euc.name)}
+        >
+          View generated EUC
+        </button>
+      )}
 
       <div className="result-grid">
         <ResultList title="Generated files" items={result.generated_euc.files.map((file) => file.path)} />

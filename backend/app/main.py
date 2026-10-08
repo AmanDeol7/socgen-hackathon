@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.eucs import router as euc_router
 from app.api.execution import router as execution_router
 from app.api.migration import router as migration_router
 
@@ -19,6 +20,7 @@ app.add_middleware(
 )
 app.include_router(migration_router)
 app.include_router(execution_router)
+app.include_router(euc_router)
 
 
 @app.get("/health")

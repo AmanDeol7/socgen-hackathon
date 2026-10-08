@@ -7,12 +7,19 @@ from pathlib import Path, PurePosixPath
 from app.schemas.migration import CodeAnalysis, EucMetadata, GeneratedEUC, GeneratedFile
 from app.services.migration.runtime import RUNNER_CONTENT
 
+_PLATFORM_TEST = """from src.main import run
+
+
+def test_run_is_callable() -> None:
+    assert callable(run)
+"""
 _STANDARD_FILES = {
     "src/runner.py",
     "Dockerfile",
     "config/config.yaml",
     "requirements.txt",
     "README.md",
+    "tests/test_euc_contract.py",
 }
 _STDLIB_MODULES = {
     "argparse", "ast", "base64", "collections", "datetime", "email", "functools",
@@ -57,8 +64,18 @@ def assemble(
         for generated_file in business_euc.files
         if generated_file.path not in _STANDARD_FILES
     ]
+    has_business_tests = any(
+        item.path.startswith("tests/") and item.path.endswith(".py")
+        for item in business_files
+    )
     files = [
         *business_files,
+        *([] if has_business_tests else [
+            GeneratedFile(
+                path="tests/test_euc_contract.py",
+                content=_PLATFORM_TEST,
+            )
+        ]),
         GeneratedFile(path="src/runner.py", content=RUNNER_CONTENT),
         GeneratedFile(path="Dockerfile", content=_dockerfile(metadata.python_version)),
         GeneratedFile(path="config/config.yaml", content=_config(metadata)),

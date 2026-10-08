@@ -65,9 +65,9 @@ reach the API response.
 
 ## Local EUC execution
 
-The migration endpoint only creates and validates standardized EUCs. It does
-not execute them. An already-generated EUC can be run synchronously through
-Docker with:
+The migration endpoint creates and validates standardized EUCs, writes their
+files, and builds a local Docker image before registering them as executable.
+Execution runs that already-built image synchronously through Docker with:
 
 ```http
 POST /api/executions
@@ -87,8 +87,8 @@ The response contains an `execution_id`, lifecycle `status`, timezone-aware
 timestamps, `duration_ms`, `euc_name`, `exit_code`, `stdout`, and `stderr`.
 Statuses are `PENDING`, `RUNNING`, `COMPLETED`, `FAILED`, and `TIMED_OUT`.
 The service derives the Docker image name from registry metadata and invokes
-the standardized `python -m src.runner` container entrypoint.
-Docker must be installed and running locally. Set `EUC_OUTPUT_ROOT` to the
+the standardized `python -m src.runner` container entrypoint. Docker must be
+installed and running locally for migration image builds and execution. Set `EUC_OUTPUT_ROOT` to the
 local generated-EUC directory when needed and optionally set
 `EUC_EXECUTION_TIMEOUT_SECONDS` (default: 30 seconds).
 
@@ -109,8 +109,9 @@ service.
 
 The local execution service uses an in-memory registry that maps a logical EUC
 name to validated execution metadata: Docker image, version, and generated
-artifact path. Successful migrations register their generated artifact after
-validation and generation. Existing generated EUCs are discovered on first
-execution so the current local workflow remains compatible. Callers provide
-only the logical EUC name; future schedulers such as AutoSys will use that
-name rather than Docker or filesystem details.
+artifact path. Successful migrations rebuild the deterministic `<name>:latest`
+image from the generated artifact and register it only after the build succeeds.
+Existing generated EUCs are discovered on first execution for compatibility;
+they must already have a matching local image. Callers provide only the logical
+EUC name; future schedulers such as AutoSys will use that name rather than
+Docker or filesystem details.

@@ -352,3 +352,54 @@ def test_transform_repairs_overescaped_python_content(
         "def run(input_data, context):\n"
         '    return {"message": "Hello"}\n'
     )
+
+
+def test_transform_repairs_double_escaped_source_and_json_tail(
+    source_code: str,
+    analysis: CodeAnalysis,
+    metadata: EucMetadata,
+    specification: str,
+) -> None:
+    response = json.dumps(
+        {
+            "name": metadata.name,
+            "files": [
+                {
+                    "path": "src/main.py",
+                    "content": (
+                        "import logging\\\\n"
+                        "logger = logging.getLogger(__name__)\\\\n"
+                        "def run(input_data, context):\\\\n"
+                        "    name = input_data.get('name')\\\\n"
+                        "    if not name:\\\\n"
+                        "        raise ValueError('name is required')\\\\n"
+                        "    return {'message': name}\\\\n"
+                    ),
+                },
+                {
+                    "path": "src/logic.py",
+                    "content": (
+                        "def generate_greeting(name: str) -> str:\\\\n"
+                        "    return f\\\\\\\"Hello, {name}!\\\\\\\"}, {"
+                    ),
+                },
+            ],
+            "warnings": [],
+            "unsupported_features": [],
+        }
+    )
+
+    generated = transform(
+        source_code,
+        analysis,
+        metadata,
+        specification,
+        FakeProvider(response),
+    )
+
+    files = {item.path: item.content for item in generated.files}
+    assert files["src/main.py"].startswith("import logging\n")
+    assert files["src/logic.py"] == (
+        "def generate_greeting(name: str) -> str:\n"
+        '    return f"Hello, {name}!"'
+    )

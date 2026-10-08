@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 from pathlib import PurePosixPath
 from typing import Protocol
 
@@ -44,7 +45,7 @@ def transform(
 
 
 def _repair_overescaped_python(generated: GeneratedEUC) -> GeneratedEUC:
-    """Repair one common provider serialization error without altering valid code."""
+    """Repair narrowly recognized escaped-source and JSON-tail provider errors."""
     repaired_files = []
     for generated_file in generated.files:
         content = generated_file.content
@@ -52,15 +53,24 @@ def _repair_overescaped_python(generated: GeneratedEUC) -> GeneratedEUC:
             try:
                 ast.parse(content)
             except SyntaxError:
-                candidate = content.replace('\\"', '"')
-                try:
-                    ast.parse(candidate)
-                except SyntaxError:
-                    pass
-                else:
-                    content = candidate
+                candidate = re.sub(r"\\+([nrt\"])", _decode_source_escape, content)
+                candidates = [candidate]
+                if candidate.endswith("}, {"):
+                    candidates.append(candidate[:-4])
+                for normalized in candidates:
+                    try:
+                        ast.parse(normalized)
+                    except SyntaxError:
+                        continue
+                    content = normalized
+                    break
         repaired_files.append(generated_file.model_copy(update={"content": content}))
     return generated.model_copy(update={"files": repaired_files})
+
+
+def _decode_source_escape(match: re.Match[str]) -> str:
+    """Decode escaped line controls and quotes in malformed provider source."""
+    return {"n": "\n", "r": "\r", "t": "\t", '"': '"'}[match.group(1)]
 
 
 def _build_prompt(
