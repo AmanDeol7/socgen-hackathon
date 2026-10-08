@@ -20,8 +20,10 @@ MAXX EUC
 → validation
 ```
 
-The current scope excludes cloud deployment, AutoSys, PostgreSQL, enterprise
-logging, authentication, and production infrastructure.
+The current scope excludes cloud deployment, PostgreSQL, enterprise logging,
+authentication, and production infrastructure. A small local AutoSys adapter
+is provided as an example scheduler client; it does not add scheduling
+functionality to the platform.
 
 ## Local setup
 
@@ -106,9 +108,6 @@ GET /api/executions
 Lifecycle records are stored only in process-local memory. Execution history
 disappears when the backend restarts; no persistent execution database is used.
 
-AutoSys is a future external scheduler and is not part of this local execution
-service.
-
 ### Local EUC registry
 
 The local execution service loads its registry into memory from
@@ -139,3 +138,55 @@ create or reuse `<GITHUB_ORG>/<euc-name>` and commit the complete validated
 standardized artifact. The API returns the repository URL and commit SHA.
 Subsequent saves create ordinary Git commits; no additional version store is
 used.
+
+### Local AutoSys execution demo
+
+The AutoSys adapter is a thin HTTP client for the existing execution endpoint.
+It does not choose the Docker image or bypass registration and certification
+checks. The AutoSys agent must be able to reach the EUC Platform API; Docker
+must be available to the backend host.
+
+Run the adapter manually from the repository root to test the request:
+
+```powershell
+$env:EUC_PLATFORM_URL = "http://127.0.0.1:8000"
+python scripts/autosys/run_euc.py customer-greeting --input-json '{"name":"Aman"}'
+```
+
+The URL defaults to `http://127.0.0.1:8000`. The adapter prints the EUC name,
+execution ID, lifecycle status, exit code, and sanitized result/error. It exits
+with `0` only for `COMPLETED` with exit code `0`; malformed input, API errors,
+and failed or timed-out executions produce a non-zero exit code. It sends no
+credentials or authorization header and does not print the submitted input.
+
+#### Minimal local demo
+
+1. Start FastAPI from `backend` with `uvicorn app.main:app --reload --reload-dir app`.
+2. Create an EUC through the platform UI or the existing EUC creation API.
+3. Wait for validation, Docker image build, and local registration to complete.
+4. Submit the EUC for certification and have one of its registered owners approve it.
+5. Start the local AutoSys scheduler/agent using the instructions for the installed version.
+6. Configure a command job to invoke `scripts/autosys/run_euc.py` with the EUC name and input JSON.
+7. Schedule the job using the installed AutoSys version's normal schedule attributes.
+8. AutoSys invokes the adapter at the scheduled time.
+9. The adapter sends `POST /api/executions`; the platform checks registration and certification, then executes the registry-selected image in Docker.
+10. The adapter exits `0` on successful execution or non-zero on failure, which AutoSys can use as the job outcome.
+
+#### Conceptual AutoSys command job
+
+AutoSys job-definition syntax and quoting vary by release and operating system.
+Use the equivalent fields in your installed release; this is a concept, not a
+version-independent JIL definition:
+
+```text
+job name: EUC_CUSTOMER_GREETING
+job type: command
+machine: <local AutoSys agent that can reach the platform API>
+command: python <repository-path>/scripts/autosys/run_euc.py customer-greeting --input-json '{"name":"Aman"}'
+schedule: once daily at 06:00 (use the installed version's schedule syntax)
+```
+
+Set `EUC_PLATFORM_URL` in the command job's process environment only if the API
+is not at the default URL. No AutoSys database, management API, or scheduler
+state is added to the EUC Platform. The platform execution lifecycle remains
+process-local and is not durable across backend restarts.
