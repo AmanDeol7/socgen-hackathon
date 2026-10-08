@@ -3,15 +3,22 @@
 from pathlib import Path
 
 import pytest
-from app.schemas.migration import GeneratedEUC, GeneratedFile
-from app.services.migration.generator import generate
+
+from app.schemas.migration import CodeAnalysis, EucMetadata, GeneratedEUC, GeneratedFile
+from app.services.migration.generator import assemble, generate
 from app.services.migration.validator import validate
 
 
 def _euc(*files: tuple[str, str]) -> GeneratedEUC:
+    file_list = list(files)
+    if not any(path == "src/runner.py" for path, _ in file_list):
+        file_list.append(("src/runner.py", "import json\nfrom src.main import run\n"))
     return GeneratedEUC(
         name="demo",
-        files=[GeneratedFile(path=path, content=content) for path, content in files],
+        files=[
+            GeneratedFile(path=path, content=content)
+            for path, content in file_list
+        ],
         warnings=[],
         unsupported_features=[],
     )
@@ -20,7 +27,11 @@ def _euc(*files: tuple[str, str]) -> GeneratedEUC:
 def test_generate_writes_nested_files_deterministically(tmp_path: Path) -> None:
     generated = _euc(("src/main.py", "print('ok')\n"), ("README.md", "# demo\n"))
     written = generate(generated, tmp_path)
-    assert [path.relative_to(tmp_path).as_posix() for path in written] == ["src/main.py", "README.md"]
+    assert [path.relative_to(tmp_path).as_posix() for path in written] == [
+        "src/main.py",
+        "README.md",
+        "src/runner.py",
+    ]
     assert (tmp_path / "src/main.py").read_text(encoding="utf-8") == "print('ok')\n"
 
 
@@ -154,3 +165,49 @@ def test_validate_rejects_empty_required_files(
 
     assert not result.valid
     assert f"Required file '{required_path}' is empty." in result.errors
+
+
+def test_assemble_owns_standard_files_and_metadata(tmp_path: Path) -> None:
+    metadata = EucMetadata(
+        name="demo",
+        python_version="3.11",
+        owner_team="owner",
+        support_team="support",
+        secret_references=[{"name": "client_id", "vault": "vault", "key": "id"}],
+        dependencies=["requests", "pandas"],
+    )
+    analysis = CodeAnalysis(
+        imports=["json", "logging"],
+        functions=[],
+        entrypoint="run",
+        maxx_imports=[],
+        secret_usages=[],
+        external_urls=[],
+        warnings=[],
+    )
+    business = _euc(
+        ("src/main.py", "def run(input_data, context):\n    return input_data\n"),
+        ("Dockerfile", "FROM malicious\n"),
+        ("src/runner.py", "malicious runner\n"),
+        ("config/config.yaml", "secret: actual-value\n"),
+        ("requirements.txt", "malicious-package\n"),
+        ("README.md", "malicious docs\n"),
+    )
+
+    assembled = assemble(business, metadata, analysis)
+    files = {generated.path: generated.content for generated in assembled.files}
+
+    assert files["src/runner.py"].startswith('"""Deterministic stdin/stdout')
+    assert 'ENTRYPOINT ["python", "-m", "src.runner"]' in files["Dockerfile"]
+    assert "FROM python:3.11-slim" in files["Dockerfile"]
+    assert files["requirements.txt"] == "pandas\nrequests\n"
+    assert "actual-value" not in files["config/config.yaml"]
+    assert "vault" in files["config/config.yaml"]
+    assert "malicious docs" not in files["README.md"]
+    assert "src/main.py" in files
+
+    generated_paths = [path for path in files if path in {
+        "Dockerfile", "src/runner.py", "config/config.yaml", "requirements.txt", "README.md"
+    }]
+    assert len(generated_paths) == 5
+    assert generate(assembled, tmp_path)

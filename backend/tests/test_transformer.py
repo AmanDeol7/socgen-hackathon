@@ -3,6 +3,7 @@
 import json
 
 import pytest
+
 from app.schemas.migration import CodeAnalysis, EucMetadata
 from app.services.migration.transformer import (
     TransformationError,
@@ -108,10 +109,22 @@ def test_successful_transformation_and_provider_invocation(
     provider = FakeProvider(_response(metadata))
 
     result = transform(source_code, analysis, metadata, specification, provider)
+    contents = "\n".join(generated_file.content for generated_file in result.files)
+
+    assert "get_lambda_secret(" not in contents
+    assert "sglambdautils" not in contents
+    assert "client-id" in contents
+    assert "client-secret" in contents
+    assert "actual-secret-value" not in contents
 
     assert provider.prompts
     assert result.name == metadata.name
-    assert len(result.files) == 6
+    assert len(result.files) == 7
+    assert any(generated_file.path == "src/runner.py" for generated_file in result.files)
+    dockerfile = next(
+        generated_file for generated_file in result.files if generated_file.path == "Dockerfile"
+    )
+    assert 'ENTRYPOINT ["python", "-m", "src.runner"]' in dockerfile.content
 
 
 def test_prompt_contains_source_analysis_metadata_and_specification(
@@ -131,6 +144,10 @@ def test_prompt_contains_source_analysis_metadata_and_specification(
     assert specification in prompt
     assert "Preserve business logic" in prompt
     assert "Never include actual secret values" in prompt
+    assert "# No external dependencies required" in prompt
+    assert "entire response MUST be ONLY one valid JSON object" in prompt
+    assert "Do not include Markdown" in prompt
+    assert "Do not omit any of the four top-level fields" in prompt
 
 
 def test_warnings_and_unsupported_features_are_preserved(
@@ -169,7 +186,7 @@ def test_fenced_json_response_is_parsed(
                 '{"name": "cmfst-global-limit", "files": [], '
                 '"warnings": [], "unsupported_features": []}'
             ),
-            "at least one file",
+            "src/main.py",
         ),
     ],
 )
@@ -182,6 +199,29 @@ def test_malformed_provider_response_fails_cleanly(
     specification: str,
 ) -> None:
     with pytest.raises(TransformationError, match=message):
+        transform(
+            source_code,
+            analysis,
+            metadata,
+            specification,
+            FakeProvider(response),
+        )
+
+
+def test_response_missing_generated_euc_fields_fails_cleanly(
+    source_code: str,
+    analysis: CodeAnalysis,
+    metadata: EucMetadata,
+    specification: str,
+) -> None:
+    response = json.dumps(
+        {
+            "name": metadata.name,
+            "files": [{"path": "src/main.py", "content": "def run(value):\n    return value\n"}],
+        }
+    )
+
+    with pytest.raises(TransformationError, match="does not match GeneratedEUC"):
         transform(
             source_code,
             analysis,
@@ -276,11 +316,39 @@ def test_generated_files_use_safe_secret_references_not_values(
 ) -> None:
     provider = FakeProvider(_response(metadata))
 
-    result = transform(source_code, analysis, metadata, specification, provider)
-    contents = "\n".join(generated_file.content for generated_file in result.files)
+    transform(source_code, analysis, metadata, specification, provider)
 
-    assert "get_lambda_secret(" not in contents
-    assert "sglambdautils" not in contents
-    assert "client-id" in contents
-    assert "client-secret" in contents
-    assert "actual-secret-value" not in contents
+
+def test_transform_repairs_overescaped_python_content(
+    source_code: str,
+    analysis: CodeAnalysis,
+    metadata: EucMetadata,
+    specification: str,
+) -> None:
+    response = json.dumps(
+        {
+            "name": metadata.name,
+            "files": [
+                {
+                    "path": "src/main.py",
+                    "content": "def run(input_data, context):\n"
+                    "    return {\\\"message\\\": \\\"Hello\\\"}\n",
+                }
+            ],
+            "warnings": [],
+            "unsupported_features": [],
+        }
+    )
+
+    generated = transform(
+    source_code,
+    analysis,
+    metadata,
+    specification,
+        FakeProvider(response),
+    )
+
+    assert generated.files[0].content == (
+        "def run(input_data, context):\n"
+        '    return {"message": "Hello"}\n'
+    )

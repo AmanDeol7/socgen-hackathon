@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import PurePosixPath
 from typing import Protocol
@@ -9,6 +10,7 @@ from typing import Protocol
 from pydantic import ValidationError
 
 from app.schemas.migration import CodeAnalysis, EucMetadata, GeneratedEUC
+from app.services.migration.runtime import ensure_execution_contract
 
 
 class LLMProvider(Protocol):
@@ -36,9 +38,29 @@ def transform(
     """
     prompt = _build_prompt(source_code, analysis, metadata, standard_specification)
     response = provider.generate(prompt)
-    generated = _parse_response(response)
+    generated = ensure_execution_contract(_parse_response(response))
     _validate_generated_euc(generated, metadata)
-    return generated
+    return _repair_overescaped_python(generated)
+
+
+def _repair_overescaped_python(generated: GeneratedEUC) -> GeneratedEUC:
+    """Repair one common provider serialization error without altering valid code."""
+    repaired_files = []
+    for generated_file in generated.files:
+        content = generated_file.content
+        if generated_file.path.endswith(".py"):
+            try:
+                ast.parse(content)
+            except SyntaxError:
+                candidate = content.replace('\\"', '"')
+                try:
+                    ast.parse(candidate)
+                except SyntaxError:
+                    pass
+                else:
+                    content = candidate
+        repaired_files.append(generated_file.model_copy(update={"content": content}))
+    return generated.model_copy(update={"files": repaired_files})
 
 
 def _build_prompt(
@@ -59,18 +81,27 @@ credentials, external APIs, business requirements, or metadata. Do not change
 the manually supplied metadata. Generate testable Python and separate business
 logic from src/main.py where practical.
 
-Generate the standardized EUC files: src/main.py, appropriate logic and tests,
-requirements.txt, config/config.yaml where appropriate, README.md, and
-Dockerfile. Report anything that cannot be safely transformed as an
-unsupported feature and prefer explicit warnings over guessing.
+Generate only transformed business-code files: src/main.py, src/logic.py where
+useful, and business-specific tests. Do not generate or modify runner.py,
+Dockerfile, config/config.yaml, requirements.txt, README.md, or any other
+platform-standard file. Those files are generated deterministically by the
+platform after your response. Report anything that cannot be safely transformed
+as an unsupported feature and prefer explicit warnings over guessing.
+The platform will generate "# No external dependencies required" when no
+runtime dependencies are selected.
 
-Return ONLY a JSON object with this shape:
+Your entire response MUST be ONLY one valid JSON object with this exact shape:
 {{
   "name": "the supplied metadata name",
   "files": [{{"path": "src/main.py", "content": "..."}}],
   "warnings": ["..."],
   "unsupported_features": ["..."]
 }}
+The response must begin with {{ and end with }}. Do not include Markdown,
+```json fences, comments, explanation, headings, or any text before or after
+the JSON object. Escape newlines, quotes, and backslashes correctly inside
+JSON string values. Use [] for warnings or unsupported_features when there are none. Do not omit
+any of the four top-level fields. Do not omit any of the four top-level fields.
 
 ORIGINAL MAXX SOURCE:
 <source>
@@ -91,7 +122,7 @@ STANDARD EUC SPECIFICATION:
 
 
 def _parse_response(response: str) -> GeneratedEUC:
-    """Parse and validate the provider's JSON response."""
+    """Parse the provider response; standard files are replaced by the generator."""
     if not isinstance(response, str) or not response.strip():
         raise TransformationError("LLM provider returned an empty response.")
 
@@ -110,11 +141,12 @@ def _parse_response(response: str) -> GeneratedEUC:
         raise TransformationError("LLM provider response must be a JSON object.")
 
     try:
-        return GeneratedEUC.model_validate(payload)
+        generated = GeneratedEUC.model_validate(payload)
     except ValidationError as error:
         raise TransformationError(
             f"LLM provider response does not match GeneratedEUC: {error}"
         ) from error
+    return generated
 
 
 def _extract_fenced_json(response: str) -> str:
@@ -138,7 +170,9 @@ def _validate_generated_euc(generated: GeneratedEUC, metadata: EucMetadata) -> N
             "Generated EUC name must match the supplied metadata name."
         )
     if not generated.files:
-        raise TransformationError("Generated EUC must contain at least one file.")
+        raise TransformationError(
+            "Generated EUC must contain at least one file, including src/main.py."
+        )
 
     paths: set[str] = set()
     for generated_file in generated.files:
@@ -161,7 +195,9 @@ def _validate_generated_euc(generated: GeneratedEUC, metadata: EucMetadata) -> N
             )
 
     if "src/main.py" not in paths:
-        raise TransformationError("Generated EUC is missing required file 'src/main.py'.")
+        raise TransformationError(
+            "Generated EUC is missing required file 'src/main.py'."
+        )
 
 
 def _is_safe_relative_path(path: str) -> bool:

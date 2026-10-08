@@ -3,10 +3,12 @@
 import json
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 from app.api.migration import get_orchestrator
 from app.main import app
+from app.services.migration import openrouter
 from app.services.migration.orchestrator import MigrationOrchestrator
-from fastapi.testclient import TestClient
 
 
 class ApiProvider:
@@ -19,6 +21,10 @@ class ApiProvider:
                 "name": "api-demo",
                 "files": [
                     {"path": "src/main.py", "content": "print('ok')\n"},
+                    {
+                        "path": "src/runner.py",
+                        "content": "from src.main import run\n",
+                    },
                     {
                         "path": "tests/test_main.py",
                         "content": "def test_ok():\n    assert True\n",
@@ -94,3 +100,17 @@ def test_post_migrations_returns_failure_information(tmp_path: Path) -> None:
     body = response.json()
     assert body["status"] == "FAILED"
     assert "Transformation failed" in body["validation"]["errors"][0]
+
+
+def test_dependency_uses_configured_openrouter_provider(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        openrouter.OpenRouterProvider,
+        "from_environment",
+        lambda: ApiProvider(),
+    )
+    monkeypatch.setenv("EUC_OUTPUT_ROOT", str(tmp_path))
+
+    orchestrator = get_orchestrator()
+    assert isinstance(orchestrator.provider, ApiProvider)

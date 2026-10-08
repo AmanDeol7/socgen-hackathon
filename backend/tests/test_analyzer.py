@@ -1,6 +1,7 @@
 """Tests for deterministic MAXX EUC static analysis."""
 
 import pytest
+
 from app.services.migration.analyzer import analyze
 
 

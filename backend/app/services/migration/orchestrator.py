@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
+from app.schemas.execution import EucExecutionMetadata
 from app.schemas.migration import (
     GeneratedEUC,
     MigrationInput,
     MigrationResult,
     ValidationResult,
 )
+from app.services.execution.registry import EucRegistry
 from app.services.migration import analyzer, generator, transformer, validator
 
 _STANDARD_SPECIFICATION = (
@@ -18,6 +21,7 @@ _STANDARD_SPECIFICATION = (
 _UNCONFIGURED_PROVIDER_MESSAGE = (
     "No LLM provider is configured for this migration service."
 )
+logger = logging.getLogger(__name__)
 
 
 class MigrationOrchestrator:
@@ -28,16 +32,20 @@ class MigrationOrchestrator:
         provider: transformer.LLMProvider,
         output_root: str | Path,
         standard_specification_path: str | Path = _STANDARD_SPECIFICATION,
+        registry: EucRegistry | None = None,
     ) -> None:
         self.provider = provider
         self.output_root = Path(output_root)
         self.standard_specification_path = Path(standard_specification_path)
+        self.registry = registry
 
     def migrate(self, migration_input: MigrationInput) -> MigrationResult:
         """Run a migration and return a contract-shaped result on every path."""
+        logger.info("Migration started.")
         try:
             analysis = analyzer.analyze(migration_input.source_code)
         except ValueError as error:
+            logger.warning("Migration analysis failed: %s", error)
             return self._failure(migration_input, "analysis", error)
 
         try:
@@ -52,11 +60,17 @@ class MigrationOrchestrator:
                 self.provider,
             )
         except (OSError, RuntimeError, ValueError) as error:
+            logger.warning(
+                "Migration transformation failed: %s",
+                self._transformation_diagnostic(error),
+            )
             return self._failure(migration_input, "transformation", error)
 
         try:
+            generated = generator.assemble(generated, migration_input.metadata, analysis)
             validation = validator.validate(generated)
         except (OSError, SyntaxError, ValueError) as error:
+            logger.warning("Migration validation failed: %s", error)
             return self._failure(
                 migration_input,
                 "validation",
@@ -65,6 +79,11 @@ class MigrationOrchestrator:
             )
 
         if not validation.valid:
+            logger.warning(
+                "Migration validation rejected generated EUC: %d error(s), %d warning(s).",
+                len(validation.errors),
+                len(validation.warnings),
+            )
             return MigrationResult(
                 status="FAILED",
                 generated_euc=generated,
@@ -74,7 +93,17 @@ class MigrationOrchestrator:
         try:
             output_directory = self._output_directory(generated)
             generator.generate_euc(generated, output_directory)
+            if self.registry is not None:
+                self.registry.register(
+                    EucExecutionMetadata(
+                        name=generated.name,
+                        image=generated.name,
+                        version="latest",
+                        path=str(output_directory),
+                    )
+                )
         except (OSError, RuntimeError, ValueError) as error:
+            logger.warning("Migration generation failed: %s", error)
             return self._failure(
                 migration_input,
                 "generation",
@@ -83,6 +112,7 @@ class MigrationOrchestrator:
                 validation=validation,
             )
 
+        logger.info("Migration completed successfully.")
         return MigrationResult(
             status="COMPLETED",
             generated_euc=generated,
@@ -154,6 +184,38 @@ class MigrationOrchestrator:
         if stage == "generation" and isinstance(error, ValueError):
             return f"Generation failed: {error}"
         return f"{stage.capitalize()} failed while processing the migration."
+
+    @staticmethod
+    def _transformation_diagnostic(error: Exception) -> str:
+        """Return a safe diagnostic for server logs without response content."""
+        message = str(error)
+        known_messages = (
+            "No LLM provider is configured for this migration service.",
+            "LLM provider returned an empty response.",
+            "LLM provider response must be a JSON object.",
+            "LLM provider response contains an invalid JSON code fence.",
+            "LLM provider response must use a JSON code fence.",
+            "Generated EUC name must not be empty.",
+            "Generated EUC name must match the supplied metadata name.",
+            "Generated EUC must contain at least one file.",
+            "Generated EUC is missing required file 'src/main.py'.",
+            "OpenRouter request failed while generating the transformation.",
+            "OpenRouter returned an invalid generation response.",
+            "OpenRouter returned an empty generation.",
+        )
+        if message in known_messages:
+            return message
+        if message.startswith("LLM provider response is not valid JSON:"):
+            return "LLM provider response is not valid JSON."
+        if message.startswith("LLM provider response does not match GeneratedEUC:"):
+            return "LLM provider response does not match GeneratedEUC."
+        if message.startswith("Generated EUC contains an invalid or duplicate file path:"):
+            return "Generated EUC contains an invalid or duplicate file path."
+        if message.startswith("Generated EUC contains an unsafe file path:"):
+            return "Generated EUC contains an unsafe file path."
+        if message.startswith("Generated file ") and "retains" in message:
+            return "Generated EUC retains MAXX runtime code."
+        return "Transformation failed due to an unexpected application error."
 
 
 class UnconfiguredLLMProvider:

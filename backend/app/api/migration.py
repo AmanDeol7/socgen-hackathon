@@ -7,6 +7,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from app.schemas.migration import MigrationInput, MigrationResult
+from app.services.execution.registry import get_registry
+from app.services.migration.openrouter import OpenRouterProvider
 from app.services.migration.orchestrator import (
     MigrationOrchestrator,
     UnconfiguredLLMProvider,
@@ -18,7 +20,8 @@ router = APIRouter()
 def get_orchestrator() -> MigrationOrchestrator:
     """Build the local-development orchestrator dependency."""
     output_root = Path(os.getenv("EUC_OUTPUT_ROOT", "output"))
-    return MigrationOrchestrator(UnconfiguredLLMProvider(), output_root)
+    provider = OpenRouterProvider.from_environment() or UnconfiguredLLMProvider()
+    return MigrationOrchestrator(provider, output_root, registry=get_registry(output_root))
 
 
 @router.post("/api/migrations", response_model=MigrationResult)

@@ -10,6 +10,7 @@ from app.schemas.migration import GeneratedEUC, GeneratedFile, ValidationResult
 
 _REQUIRED_FILES = (
     "src/main.py",
+    "src/runner.py",
     "config/config.yaml",
     "requirements.txt",
     "README.md",

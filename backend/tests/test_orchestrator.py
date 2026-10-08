@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+
 from app.schemas.migration import (
     CodeAnalysis,
     EucMetadata,
@@ -27,6 +28,10 @@ class FakeProvider:
                 "name": self.metadata.name,
                 "files": [
                     {"path": "src/main.py", "content": "print('ok')\n"},
+                    {
+                        "path": "src/runner.py",
+                        "content": "from src.main import run\n",
+                    },
                     {
                         "path": "tests/test_main.py",
                         "content": "def test_ok():\n    assert True\n",
@@ -61,6 +66,17 @@ class LeakingTransformationProvider:
         raise orchestrator.transformer.TransformationError(
             "provider api_key=do-not-expose"
         )
+
+
+class StaticProvider:
+    """Return a fixed provider response for failure-path tests."""
+
+    def __init__(self, response: str) -> None:
+        self.response = response
+
+    def generate(self, prompt: str) -> str:
+        del prompt
+        return self.response
 
 
 @pytest.fixture
@@ -139,8 +155,9 @@ def test_provider_failure_returns_failed_result(
 
 
 def test_uncontrolled_transformation_error_is_not_exposed(
-    migration_input: MigrationInput, tmp_path: Path
+    migration_input: MigrationInput, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
+    caplog.set_level("WARNING")
     result = orchestrator.MigrationOrchestrator(
         LeakingTransformationProvider(), tmp_path
     ).migrate(migration_input)
@@ -149,6 +166,23 @@ def test_uncontrolled_transformation_error_is_not_exposed(
     assert result.validation.errors == [
         "Transformation failed while processing the migration."
     ]
+    assert "Migration transformation failed" in caplog.text
+    assert "provider api_key=do-not-expose" not in caplog.text
+
+
+def test_transformation_logs_safe_provider_response_reason(
+    migration_input: MigrationInput, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("WARNING")
+    provider = StaticProvider("not-json")
+
+    result = orchestrator.MigrationOrchestrator(provider, tmp_path).migrate(
+        migration_input
+    )
+
+    assert result.status == "FAILED"
+    assert "LLM provider response is not valid JSON." in caplog.text
+    assert "not-json" not in caplog.text
 
 
 def test_analyzer_failure_returns_failed_result(
@@ -183,6 +217,10 @@ def test_unsafe_generated_name_fails_before_generation(
             name="../outside",
             files=[
                 GeneratedFile(path="src/main.py", content="print('ok')\n"),
+                GeneratedFile(
+                    path="src/runner.py",
+                    content="from src.main import run\n",
+                ),
                 GeneratedFile(
                     path="tests/test_main.py",
                     content="def test_ok():\n    assert True\n",
